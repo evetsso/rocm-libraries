@@ -35,7 +35,7 @@ struct rocfft_spirv_cb_t
 {
     rocfft_spirv_cb_t() = default;
     void set(const char* _symbol_name,
-             void*       _bitcode_data,
+             const void* _bitcode_data,
              size_t      _bitcode_len_bytes,
              void**      _cb_data)
     {
@@ -51,7 +51,7 @@ struct rocfft_spirv_cb_t
 
     // Non-owning pointers to data provided by users
     const char* symbol_name       = nullptr;
-    void*       bitcode_data      = nullptr;
+    const void* bitcode_data      = nullptr;
     size_t      bitcode_len_bytes = 0;
     void**      cb_data           = nullptr;
 };
@@ -129,9 +129,11 @@ struct hipLink_wrapper_t
 
     void link(void* bitcode_data, size_t bitcode_len_bytes, const char* filename)
     {
+        // hip/cu link APIs accept non-const data, even though they
+        // have no reason to own or modify the data
         if(hipLinkAddData(state,
                           hipJitInputSpirv,
-                          bitcode_data,
+                          const_cast<void*>(bitcode_data),
                           bitcode_len_bytes,
                           filename,
                           0,

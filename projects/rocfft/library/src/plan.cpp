@@ -552,7 +552,7 @@ static bool valid_symbol_name(const char* symbol_name)
 
 rocfft_status rocfft_plan_description_set_load_callback(rocfft_plan_description description,
                                                         const char*             symbol_name,
-                                                        void*                   bitcode_data,
+                                                        const void*             bitcode_data,
                                                         size_t                  bitcode_len_bytes,
                                                         void**                  cb_data,
                                                         size_t                  shared_mem_bytes)
@@ -597,7 +597,7 @@ catch(...)
 
 rocfft_status rocfft_plan_description_set_store_callback(rocfft_plan_description description,
                                                          const char*             symbol_name,
-                                                         void*                   bitcode_data,
+                                                         const void*             bitcode_data,
                                                          size_t                  bitcode_len_bytes,
                                                          void**                  cb_data,
                                                          size_t                  shared_mem_bytes)
