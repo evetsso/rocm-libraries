@@ -162,6 +162,12 @@ typedef void (*hipfftJITCallbackStoreD)(
    * LTO-IR fatbin on CUDA platforms.  An array of callback data
    * pointers must be given - one per device executing the plan.
    *
+   *  This function must be called after the plan is allocated using
+   *  ::hipfftCreate, but before the plan is initialized by any of the
+   *  "MakePlan" functions.  Therefore, API functions that combine
+   *  creation and initialization (::hipfftPlan1d, ::hipfftPlan2d,
+   *  ::hipfftPlan3d, and ::hipfftPlanMany) cannot set a JIT callback.
+   *
    * @param[in] plan The FFT plan.
    * @param[in] symbol_name Name of the symbol in the compiled bitcode.
    * @param[in] bitcode_data Pointer to bitcode data.
