@@ -48,7 +48,6 @@ std::vector<char> compile_inprocess(const std::string& kernel_src, const std::st
     std::string gpu_arch_arg = "--offload-arch=" + gpu_arch;
 
     std::vector<const char*> options;
-    // spirv doesn't require
     options.push_back("-O3");
     options.push_back("-std=c++20");
     options.push_back(gpu_arch_arg.c_str());

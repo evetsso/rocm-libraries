@@ -504,10 +504,10 @@ public:
     const char*        load_cb_symbol = nullptr;
     std::vector<char>  load_cb_func;
     std::vector<void*> load_cb_data;
-    const char*        store_cb_symbol = nullptr;
+    size_t             load_cb_shared_mem_bytes = 0;
+    const char*        store_cb_symbol          = nullptr;
     std::vector<char>  store_cb_func;
     std::vector<void*> store_cb_data;
-    size_t             load_cb_shared_mem_bytes  = 0;
     size_t             store_cb_shared_mem_bytes = 0;
 
     enum fft_mp_lib
@@ -1094,10 +1094,17 @@ public:
             append_size_vec(ooffset);
         }
 
-        if(run_callbacks == RunCallbacksType::LEGACY)
+        switch(run_callbacks)
+        {
+        case RunCallbacksType::LEGACY:
             ret += "_CB";
-        else if(run_callbacks == RunCallbacksType::JIT)
+            break;
+        case RunCallbacksType::JIT:
             ret += "_JITCB";
+            break;
+        case RunCallbacksType::NONE:
+            break;
+        }
 
         if(scale_factor != 1.0)
             ret += "_scale";
