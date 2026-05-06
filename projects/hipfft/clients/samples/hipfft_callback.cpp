@@ -71,33 +71,32 @@ std::vector<char> compile_callback()
     options.push_back("-c");
 
     if(hiprtcCompileProgram(prog, options.size(), options.data()) != HIPRTC_SUCCESS)
-        throw std::runtime_error("failed to compile program");
+    {
+        size_t logSize = 0;
+        hiprtcGetProgramLogSize(prog, &logSize);
+
+        if(logSize)
+        {
+            std::vector<char> log(logSize, '\0');
+            if(hiprtcGetProgramLog(prog, log.data()) == HIPRTC_SUCCESS)
+                throw std::runtime_error(std::string(log.begin(), log.end()));
+        }
+        throw std::runtime_error("compile failed without log");
+    }
 
     size_t codeSize;
-    if(hiprtcGetCodeSize(prog, &codeSize) != HIPRTC_SUCCESS)
-        throw std::runtime_error("failed to get code size");
+    if(hiprtcGetBitcodeSize(prog, &codeSize) != HIPRTC_SUCCESS)
+        throw std::runtime_error("failed to get bitcode size");
 
     std::vector<char> code(codeSize);
-    if(hiprtcGetCode(prog, code.data()) != HIPRTC_SUCCESS)
-        throw std::runtime_error("failed to get code");
+    if(hiprtcGetBitcode(prog, code.data()) != HIPRTC_SUCCESS)
+        throw std::runtime_error("failed to get bitcode");
     hiprtcDestroyProgram(&prog);
     return code;
 }
 
 int main()
 {
-<<<<<<< HEAD
-||||||| d46ec4cca7e7
-#ifdef WIN32 std::cout << "This sample is temporarily disabled on Windows" << std::endl;
-    return EXIT_SUCCESS;
-#else
-
-=======
-#ifdef _WIN32 std::cout << "This sample is temporarily disabled on Windows" << std::endl;
-    return EXIT_SUCCESS;
-#else
-
->>>>>>> upstream/develop
     std::cout << "hipfft 1D double-precision complex-to-complex transform with callback\n";
 
     const int Nx        = 8;
@@ -158,16 +157,21 @@ int main()
     if(hipfft_rt != HIPFFT_SUCCESS)
         throw std::runtime_error("failed to create plan");
 
+    hipfft_rt = hipfftSetAutoAllocation(plan, 1);
+    if(hipfft_rt != HIPFFT_SUCCESS)
+        throw std::runtime_error("failed to set auto-allocation policy");
+
     // Set callback on the plan before setting plan details
     hipfft_rt = hipfftXtSetJITCallback(
         plan, "load_callback", code.data(), code.size(), HIPFFT_CB_LD_COMPLEX_DOUBLE, &cbdata_dev);
     if(hipfft_rt != HIPFFT_SUCCESS)
         throw std::runtime_error("hipfftXtSetJITCallback failed");
 
-    hipfft_rt = hipfftPlan1d(&plan, // plan handle
-                             Nx, // transform length
-                             HIPFFT_Z2Z, // transform type (HIPFFT_C2C for single-precision)
-                             1); // number of transforms
+    hipfft_rt = hipfftMakePlan1d(plan, // plan handle
+                                 Nx, // transform length
+                                 HIPFFT_Z2Z, // transform type (HIPFFT_C2C for single-precision)
+                                 1,
+                                 nullptr); // number of transforms
     if(hipfft_rt != HIPFFT_SUCCESS)
         throw std::runtime_error("hipfftPlan1d failed");
 
