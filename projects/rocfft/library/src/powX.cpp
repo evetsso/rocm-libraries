@@ -570,7 +570,6 @@ void TransformPowX(const rocfft_plan_t&                    plan,
         {
             load_node->callbacks.load_cb_data
                 = plan.desc.loadOps.spirv_cb.cb_data[execPlan.location.device];
-            // FIXME: plumb shared mem bytes through
         }
         // otherwise, legacy callback
         else
@@ -592,7 +591,6 @@ void TransformPowX(const rocfft_plan_t&                    plan,
         {
             store_node->callbacks.store_cb_data
                 = plan.desc.storeOps.spirv_cb.cb_data[execPlan.location.device];
-            // FIXME: plumb shared mem bytes through
         }
         // otherwise, legacy callback
         else
