@@ -185,6 +185,8 @@ if(NOT "${HIP_PLATFORM}" STREQUAL "nvidia")
             -DUSE_OPENMP=OFF
             -DUSE_THREAD=OFF
             -DCMAKE_C_VISIBILITY_PRESET=hidden
+            -DSYMBOLPREFIX=hipsolver_detail_
+            -DSYMBOLSUFFIX=
         )
 
         # Only pass CMAKE_BUILD_TYPE for single-config generators (it is
@@ -225,7 +227,19 @@ if(NOT "${HIP_PLATFORM}" STREQUAL "nvidia")
             BINARY_DIR          ${LAPACK_BINARY_DIR}
             CMAKE_ARGS          ${LAPACK_CMAKE_ARGS}
             INSTALL_COMMAND     ""
+            UPDATE_DISCONNECTED TRUE
         )
+
+        # Rename symbols in the static library to avoid conflicts with downstream BLAS/LAPACK
+        # OpenBLAS's SYMBOLPREFIX only works for shared libraries, so we use objcopy post-build
+        # The gensymbol script doesn't include Fortran LAPACK symbols, so we generate a complete mapping
+        ExternalProject_Add_Step(hipsolver-static-lapack rename_symbols
+            COMMAND ${CMAKE_COMMAND} -E echo "Prefixing OpenBLAS symbols with hipsolver_detail_"
+            COMMAND sh ${PROJECT_SOURCE_DIR}/cmake/prefix_openblas_symbols.sh ${LAPACK_BINARY_DIR}/lib hipsolver_detail_ ${LAPACK_BINARY_DIR}/objcopy.def
+            DEPENDEES build
+            WORKING_DIRECTORY ${LAPACK_BINARY_DIR}
+        )
+
         add_library(lapack_libraries STATIC IMPORTED)
 
         if(IS_MULTI_CONFIG)

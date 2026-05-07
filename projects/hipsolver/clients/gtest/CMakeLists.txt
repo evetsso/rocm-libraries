@@ -22,6 +22,23 @@
 
 find_package(GTest REQUIRED)
 
+# Tests need access to unprefixed LAPACK for their own use
+# They should link to system LAPACK, not the prefixed internal version used by libhipsolver
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+if(HIPSOLVER_FIND_PACKAGE_LAPACK_CONFIG)
+    find_package(LAPACK 3.7 REQUIRED CONFIG)
+else()
+    find_package(LAPACK 3.7 REQUIRED)
+endif()
+
+if(NOT LAPACK_LIBRARIES)
+    set(LAPACK_LIBRARIES
+        ${LAPACK_blas_LIBRARIES}
+        ${LAPACK_lapack_LIBRARIES}
+    )
+endif()
+
 if(BUILD_HIPBLAS_TESTS)
   if(NOT TARGET hipblas)
     if(CUSTOM_HIPBLAS)
@@ -116,14 +133,15 @@ target_include_directories(hipsolver-test
 
 # TODO: This LAPACK dependency is only required to support geev
 # It should be removed once geev is implemented in rocSOLVER
-if(NOT "${HIP_PLATFORM}" STREQUAL "nvidia" AND TARGET lapack_libraries)
-  target_link_libraries(hipsolver-test PRIVATE
-    lapack_libraries
-  )
+# Note: Tests link directly to system LAPACK, not the prefixed version used by libhipsolver
+if(NOT "${HIP_PLATFORM}" STREQUAL "nvidia")
+    target_link_libraries(hipsolver-test PRIVATE
+        ${LAPACK_LIBRARIES}
+    )
 else()
-  target_link_libraries(hipsolver-test PRIVATE
-    ${LAPACK_LIBRARIES}
-  )
+    target_link_libraries(hipsolver-test PRIVATE
+        ${LAPACK_LIBRARIES}
+    )
 endif()
 target_link_libraries(hipsolver-test PRIVATE
   hipsolver-common
