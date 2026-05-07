@@ -49,6 +49,10 @@ struct rocfft_spirv_cb_t
         return symbol_name && bitcode_data && bitcode_len_bytes;
     }
 
+    // return a stringified hash of the callback, or empty string if
+    // the callback was not specified
+    std::string get_hash() const;
+
     // Non-owning pointers to data provided by users
     const char* symbol_name       = nullptr;
     const void* bitcode_data      = nullptr;
@@ -95,8 +99,7 @@ struct LoadOps
 
         if(spirv_cb.enabled())
         {
-            // FIXME: think about how to name this for caching
-            ret += "_spvCB";
+            ret += "_load" + spirv_cb.get_hash();
         }
         return ret;
     }
@@ -201,7 +204,7 @@ struct StoreOps
         if(spirv_cb.enabled())
         {
             // FIXME: think about how to name this for caching
-            ret += "_spvCB";
+            ret += "_store" + spirv_cb.get_hash();
         }
         return ret;
     }

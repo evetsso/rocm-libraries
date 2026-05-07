@@ -75,8 +75,7 @@ struct RTCCache
     static std::vector<char> cached_compile(const std::string&          kernel_name,
                                             const std::string&          gpu_arch_with_flags,
                                             kernel_src_gen_t            generate_src,
-                                            const std::array<char, 32>& generator_sum,
-                                            bool                        has_spirv = false);
+                                            const std::array<char, 32>& generator_sum);
 
     RTCCache();
     ~RTCCache() = default;

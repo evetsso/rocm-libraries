@@ -18,10 +18,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include "../../shared/sha256.h"
 #include "device/generator/generator.h"
 #include "load_store_ops.h"
 #include "rtc_kernel.h"
 #include "tree_node.h"
+#include <cstring>
+
+std::string rocfft_spirv_cb_t::get_hash() const
+{
+    std::string ret;
+    if(!symbol_name || !bitcode_data || !bitcode_len_bytes)
+        return ret;
+    // compute sha256 of symbol name + spirv code, output hex string as
+    // this will go into the kernel's name
+
+    sha256_buff state;
+    sha256_init(&state);
+    sha256_update(&state, symbol_name, std::strlen(symbol_name));
+    sha256_update(&state, bitcode_data, bitcode_len_bytes);
+
+    ret.resize(64);
+    sha256_finalize(&state);
+    sha256_read_hex(&state, ret.data());
+    return ret;
+}
 
 Function LoadOps::add_ops(const Function& f) const
 {

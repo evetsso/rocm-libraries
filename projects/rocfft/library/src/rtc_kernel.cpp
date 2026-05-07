@@ -238,8 +238,7 @@ std::shared_future<std::unique_ptr<RTCKernel>>
                           = RTCCache::cached_compile(kernel_name,
                                                      has_spirv ? ARCH_SPIRV : gpu_arch,
                                                      generator.generate_src,
-                                                     generator_sum(),
-                                                     has_spirv);
+                                                     generator_sum());
 
                       // If this is SPIR-V, link it together with the
                       // user-specified callbacks to produce a launchable
@@ -257,6 +256,14 @@ std::shared_future<std::unique_ptr<RTCKernel>>
                                           "storecb.spv");
                           linker.link(code.data(), code.size(), (kernel_name + ".spv").c_str());
                           code = linker.complete();
+
+                          // TODO: store linked code in cache
+                          //
+                          // We're already caching the SPIR-V, but not the linked code.
+                          // Linking would need to be repeated in subsequent processes
+                          // that want the same kernel+callbacks, but at least the module
+                          // cache would ensure that concurrent uses of same
+                          // kernel+callbacks in one process will only use one module.
                       }
 
                       hipModule_wrapper_t module;
