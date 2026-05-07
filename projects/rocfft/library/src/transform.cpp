@@ -431,6 +431,14 @@ try
     {
         rocfft_execution_info_internal info_internal(info);
         info_internal.ensure_work_buffer_size(plan->WorkBufBytesPerDevice());
+
+        // disallow combining JIT callbacks and legacy callbacks
+        if((plan->desc.loadOps.has_spirv() || plan->desc.storeOps.has_spirv())
+           && (info_internal.get_load_cb_fns() || info_internal.get_store_cb_fns()))
+        {
+            return rocfft_status_invalid_arg_value;
+        }
+
         plan->Execute(in_buffer, out_buffer, info_internal);
     }
     catch(std::exception& e)
