@@ -625,7 +625,7 @@ void exec_testcases(std::function<AllParams(const std::vector<std::string>&)> ma
         std::vector<void*>                        store_cb_func;
         std::vector<void*>                        store_cb_data;
         // Set legacy callbacks at execute time
-        if(all_params[testcase].run_callbacks == RunCallbacksType::LEGACY)
+        if(all_params[testcase].run_callbacks == fft_callback_type::LEGACY)
         {
             auto runtime_err_handler
                 = [&](const std::string& msg) { throw std::runtime_error(msg); };

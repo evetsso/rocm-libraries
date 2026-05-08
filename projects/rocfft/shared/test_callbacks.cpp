@@ -546,7 +546,7 @@ std::vector<char> get_store_callback_jit(fft_array_type             otype,
 // Apply store callback if necessary
 void apply_store_callback(const fft_params& params, std::vector<hostbuf>& output)
 {
-    if(params.run_callbacks == fft_params::RunCallbacksType::NONE)
+    if(params.run_callbacks == fft_params::fft_callback_type::NONE)
         return;
 
     callback_test_data cbdata;
@@ -663,7 +663,7 @@ void apply_store_callback(const fft_params& params, std::vector<hostbuf>& output
 // apply load callback if necessary
 void apply_load_callback(const fft_params& params, std::vector<hostbuf>& input)
 {
-    if(params.run_callbacks == fft_params::RunCallbacksType::NONE)
+    if(params.run_callbacks == fft_params::fft_callback_type::NONE)
         return;
     // we're applying callbacks to FFTW input/output which we can
     // assume is contiguous and non-planar

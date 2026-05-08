@@ -340,7 +340,7 @@ inline auto param_generator_base(const double                             base_p
                                                 {
                                                     // FIXME: handle JIT too
                                                     param.run_callbacks
-                                                        = fft_params::RunCallbacksType::LEGACY;
+                                                        = fft_params::fft_callback_type::LEGACY;
                                                 }
                                                 else
                                                 {

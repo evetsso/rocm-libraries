@@ -758,13 +758,13 @@ public:
     size_t multiGPU = 0;
 
     // run testing load/store callbacks
-    enum class RunCallbacksType
+    enum class fft_callback_type
     {
         NONE, // don't run callbacks
         LEGACY, // run legacy callbacks, where users provide a device function pointer
         JIT, // run jit callbacks, where users provide a function as compiled SPIR-V
     };
-    RunCallbacksType        run_callbacks   = RunCallbacksType::NONE;
+    fft_callback_type       run_callbacks   = fft_callback_type::NONE;
     static constexpr double load_cb_scalar  = 0.457813941;
     static constexpr double store_cb_scalar = 0.391504938;
 
@@ -1096,13 +1096,13 @@ public:
 
         switch(run_callbacks)
         {
-        case RunCallbacksType::LEGACY:
+        case fft_callback_type::LEGACY:
             ret += "_CB";
             break;
-        case RunCallbacksType::JIT:
+        case fft_callback_type::JIT:
             ret += "_JITCB";
             break;
-        case RunCallbacksType::NONE:
+        case fft_callback_type::NONE:
             break;
         }
 
@@ -1264,13 +1264,13 @@ public:
 
         if(pos < vals.size() && vals[pos] == "CB")
         {
-            run_callbacks = RunCallbacksType::LEGACY;
+            run_callbacks = fft_callback_type::LEGACY;
             ++pos;
         }
 
         if(pos < vals.size() && vals[pos] == "JITCB")
         {
-            run_callbacks = RunCallbacksType::JIT;
+            run_callbacks = fft_callback_type::JIT;
             ++pos;
         }
 
@@ -1976,7 +1976,7 @@ public:
     }
     bool is_callback() const
     {
-        return run_callbacks != RunCallbacksType::NONE;
+        return run_callbacks != fft_callback_type::NONE;
     }
     // checks if the parameters are consistent with a "default" data layout (considering strides and distances)
     bool is_using_default_layout() const
@@ -2865,14 +2865,14 @@ static bool lexical_cast(const std::string& word, fft_params::fft_mp_lib& mp_lib
 }
 
 // Used for CLI11 parsing of callbacks enum
-static bool lexical_cast(const std::string& word, fft_params::RunCallbacksType& cbtype)
+static bool lexical_cast(const std::string& word, fft_params::fft_callback_type& cbtype)
 {
     if(word == "none")
-        cbtype = fft_params::RunCallbacksType::NONE;
+        cbtype = fft_params::fft_callback_type::NONE;
     else if(word == "legacy")
-        cbtype = fft_params::RunCallbacksType::LEGACY;
+        cbtype = fft_params::fft_callback_type::LEGACY;
     else if(word == "jit")
-        cbtype = fft_params::RunCallbacksType::JIT;
+        cbtype = fft_params::fft_callback_type::JIT;
     else
         throw std::runtime_error("Invalid callback type specified");
     return true;

@@ -203,7 +203,6 @@ struct StoreOps
 
         if(spirv_cb.enabled())
         {
-            // FIXME: think about how to name this for caching
             ret += "_store" + spirv_cb.get_hash();
         }
         return ret;

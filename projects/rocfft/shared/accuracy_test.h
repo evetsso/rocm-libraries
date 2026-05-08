@@ -176,7 +176,7 @@ inline void execute_cpu_fft(fft_params&                  params,
     // input will be modified.  So we need to modify the copy instead.
     std::vector<hostbuf>  cpu_input_copy(cpu_input.size());
     std::vector<hostbuf>* input_ptr = &cpu_input;
-    if(params.run_callbacks != fft_params::RunCallbacksType::NONE
+    if(params.run_callbacks != fft_params::fft_callback_type::NONE
        || contiguous_params.transform_type == fft_transform_type_real_inverse)
     {
         for(size_t i = 0; i < cpu_input.size(); ++i)
@@ -217,7 +217,7 @@ inline void execute_gpu_fft(Tparams&              params,
     std::vector<void*> store_cb_data;
 
     // Legacy callbacks are provided at execution time
-    if(params.run_callbacks == fft_params::RunCallbacksType::LEGACY)
+    if(params.run_callbacks == fft_params::fft_callback_type::LEGACY)
     {
         auto runtime_err_handler = [&](const std::string& msg) {
             ++n_hip_failures;
@@ -661,7 +661,7 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
     hipError_t hip_status = hipGetLastError();
 
     std::vector<gpubuf_t<callback_test_data>> all_cb_data;
-    if(params.run_callbacks == fft_params::RunCallbacksType::JIT)
+    if(params.run_callbacks == fft_params::fft_callback_type::JIT)
     {
         auto runtime_err_handler = [&](const std::string& msg) {
             ++n_hip_failures;
@@ -786,7 +786,7 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
     if(fftw_compare && last_cpu_fft_data.length == params.length
        && last_cpu_fft_data.transform_type == params.transform_type
        && last_cpu_fft_data.run_callbacks
-              == (params.run_callbacks != fft_params::RunCallbacksType::NONE)
+              == (params.run_callbacks != fft_params::fft_callback_type::NONE)
        && last_cpu_fft_data.scale_factor == params.scale_factor
        && last_cpu_fft_data.precision >= params.precision)
     {
@@ -1315,7 +1315,7 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
         = last_cpu_fft_data.length != params.length
           || last_cpu_fft_data.transform_type != params.transform_type
           || last_cpu_fft_data.run_callbacks
-                 != (params.run_callbacks != fft_params::RunCallbacksType::NONE)
+                 != (params.run_callbacks != fft_params::fft_callback_type::NONE)
           || last_cpu_fft_data.precision != params.precision
           || last_cpu_fft_data.scale_factor != params.scale_factor
           || params.nbatch > last_cpu_fft_data.nbatch;
@@ -1327,7 +1327,7 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
         last_cpu_fft_data.nbatch         = params.nbatch;
         last_cpu_fft_data.transform_type = params.transform_type;
         last_cpu_fft_data.run_callbacks
-            = (params.run_callbacks != fft_params::RunCallbacksType::NONE);
+            = (params.run_callbacks != fft_params::fft_callback_type::NONE);
         last_cpu_fft_data.precision    = params.precision;
         last_cpu_fft_data.scale_factor = params.scale_factor;
     }

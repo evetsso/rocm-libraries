@@ -98,7 +98,7 @@ TEST_P(change_type, short_to_float)
 {
     rocfft_params params(GetParam());
     // FIXME: handle JIT too
-    params.run_callbacks = fft_params::RunCallbacksType::LEGACY;
+    params.run_callbacks = fft_params::fft_callback_type::LEGACY;
 
     ASSERT_EQ(params.create_plan(), fft_status_success);
 
