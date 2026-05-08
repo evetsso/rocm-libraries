@@ -384,7 +384,7 @@ __device__ auto store_callback_round_trip_inverse_dev_complex_double
 
 static const char* store_callback_round_trip_inverse_jit = R"(
 extern "C"
-__device__ static void store_callback_round_trip_inverse(
+__device__ void store_callback_round_trip_inverse(
     Tdata* output, size_t offset, Tdata element, void* cbdata, void* sharedMem)
 {
     auto testdata = static_cast<callback_test_data*>(cbdata);
