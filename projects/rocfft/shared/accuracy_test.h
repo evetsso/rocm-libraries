@@ -62,6 +62,19 @@ struct last_cpu_fft_cache
 };
 extern last_cpu_fft_cache last_cpu_fft_data;
 
+static void runtime_err_handler(const std::string& msg)
+{
+    ++n_hip_failures;
+    if(skip_runtime_fails)
+    {
+        throw ROCFFT_SKIP{msg};
+    }
+    else
+    {
+        throw ROCFFT_FAIL{msg};
+    }
+}
+
 // Perform several checks to make sure buffers will fit in device memory
 template <class Tparams>
 inline void check_problem_fits_device_memory(Tparams& params, const int verbose)
@@ -71,18 +84,10 @@ inline void check_problem_fits_device_memory(Tparams& params, const int verbose)
     auto hip_status = hipGetDevice(&dev_id);
     if(hip_status != hipSuccess || dev_id == hipInvalidDeviceId)
     {
-        ++n_hip_failures;
         std::stringstream ss;
         ss << "hipGetDevice failed with error code " << hip_status << " reporting device ID "
            << dev_id;
-        if(skip_runtime_fails)
-        {
-            throw ROCFFT_SKIP{ss.str()};
-        }
-        else
-        {
-            throw ROCFFT_FAIL{ss.str()};
-        }
+        runtime_err_handler(ss.str());
     }
     const auto vram_avail = device_memory_accountant::singleton().get_usable_bytes_all_devices();
 
@@ -219,18 +224,6 @@ inline void execute_gpu_fft(Tparams&              params,
     // Legacy callbacks are provided at execution time
     if(params.run_callbacks == fft_callback_type_legacy)
     {
-        auto runtime_err_handler = [&](const std::string& msg) {
-            ++n_hip_failures;
-            if(skip_runtime_fails)
-            {
-                throw ROCFFT_SKIP{msg};
-            }
-            else
-            {
-                throw ROCFFT_FAIL{msg};
-            }
-        };
-
         get_rank_load_callbacks(params,
                                 load_cb_func,
                                 load_cb_data,
@@ -279,17 +272,7 @@ inline void execute_gpu_fft(Tparams&              params,
                                         hipMemcpyDeviceToHost);
             if(hip_status != hipSuccess)
             {
-                ++n_hip_failures;
-                std::stringstream ss;
-                ss << "hipMemcpy failure";
-                if(skip_runtime_fails)
-                {
-                    throw ROCFFT_SKIP{ss.str()};
-                }
-                else
-                {
-                    throw ROCFFT_FAIL{ss.str()};
-                }
+                runtime_err_handler("hipMemcpy failure");
             }
         }
     }
@@ -471,15 +454,7 @@ inline void run_round_trip_inverse(Tparams&              params,
     {
         std::stringstream ss;
         ss << "Failed to allocate work buffer (size: " << e.attempted_size << ")";
-        ++n_hip_failures;
-        if(skip_runtime_fails)
-        {
-            throw ROCFFT_SKIP{ss.str()};
-        }
-        else
-        {
-            throw ROCFFT_FAIL{ss.str()};
-        }
+        runtime_err_handler(ss.str());
     }
     ASSERT_EQ(plan_status, fft_status_success) << "round trip inverse plan creation failed";
 
@@ -498,17 +473,7 @@ inline void run_round_trip_inverse(Tparams&              params,
                 auto hip_status = hipMemset(pobuffer[i], OUTPUT_INIT_PATTERN, obuffer_sizes[i]);
                 if(hip_status != hipSuccess)
                 {
-                    ++n_hip_failures;
-                    std::stringstream ss;
-                    ss << "hipMemset failure";
-                    if(skip_runtime_fails)
-                    {
-                        throw ROCFFT_SKIP{ss.str()};
-                    }
-                    else
-                    {
-                        throw ROCFFT_FAIL{ss.str()};
-                    }
+                    runtime_err_handler("hipMemset failure");
                 }
             }
         }
@@ -663,17 +628,6 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
     std::vector<gpubuf_t<callback_test_data>> all_cb_data;
     if(params.run_callbacks == fft_callback_type_jit)
     {
-        auto runtime_err_handler = [&](const std::string& msg) {
-            ++n_hip_failures;
-            if(skip_runtime_fails)
-            {
-                throw ROCFFT_SKIP{msg};
-            }
-            else
-            {
-                throw ROCFFT_FAIL{msg};
-            }
-        };
         params.load_cb_symbol = "load_callback";
         get_rank_load_callback_jit(params,
                                    params.load_cb_func,
@@ -708,17 +662,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
     }
     catch(fft_params::work_buffer_alloc_failure& e)
     {
-        ++n_hip_failures;
         std::stringstream ss;
         ss << "Work buffer allocation failed with size: " << e.attempted_size;
-        if(skip_runtime_fails)
-        {
-            throw ROCFFT_SKIP{ss.str()};
-        }
-        else
-        {
-            throw ROCFFT_FAIL{ss.str()};
-        }
+        runtime_err_handler(ss.str());
     }
     ASSERT_EQ(plan_status, fft_status_success) << "plan creation failed";
 
@@ -756,15 +702,7 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
                    << "(" << byte_size_to_str(ibuffer_sizes[i]) << ") with code "
                    << hipError_to_string(hip_status);
             }
-            ++n_hip_failures;
-            if(skip_runtime_fails)
-            {
-                throw ROCFFT_SKIP{ss.str()};
-            }
-            else
-            {
-                throw ROCFFT_FAIL{ss.str()};
-            }
+            runtime_err_handler(ss.str());
         }
         pibuffer[i] = ibuffer[i].data();
     }
@@ -936,17 +874,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
                                            hipMemcpyDeviceToHost);
                     if(hip_status != hipSuccess)
                     {
-                        ++n_hip_failures;
                         std::stringstream ss;
                         ss << "hipMemcpy failure with error " << hip_status;
-                        if(skip_runtime_fails)
-                        {
-                            throw ROCFFT_SKIP{ss.str()};
-                        }
-                        else
-                        {
-                            throw ROCFFT_FAIL{ss.str()};
-                        }
+                        runtime_err_handler(ss.str());
                     }
                 }
 
@@ -975,17 +905,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
                                            hipMemcpyDeviceToHost);
                     if(hip_status != hipSuccess)
                     {
-                        ++n_hip_failures;
                         std::stringstream ss;
                         ss << "hipMemcpy failure with error " << hip_status;
-                        if(skip_runtime_fails)
-                        {
-                            throw ROCFFT_SKIP{ss.str()};
-                        }
-                        else
-                        {
-                            throw ROCFFT_FAIL{ss.str()};
-                        }
+                        runtime_err_handler(ss.str());
                     }
                 }
             }
@@ -1027,17 +949,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
                                            hipMemcpyHostToHost);
                     if(hip_status != hipSuccess)
                     {
-                        ++n_hip_failures;
                         std::stringstream ss;
                         ss << "hipMemcpy failure with error " << hip_status;
-                        if(skip_runtime_fails)
-                        {
-                            throw ROCFFT_SKIP{ss.str()};
-                        }
-                        else
-                        {
-                            throw ROCFFT_FAIL{ss.str()};
-                        }
+                        runtime_err_handler(ss.str());
                     }
                 }
             }
@@ -1092,17 +1006,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
 
             if(hip_status != hipSuccess)
             {
-                ++n_hip_failures;
                 std::stringstream ss;
                 ss << "hipMemcpy failure with error " << hip_status;
-                if(skip_runtime_fails)
-                {
-                    throw ROCFFT_SKIP{ss.str()};
-                }
-                else
-                {
-                    throw ROCFFT_FAIL{ss.str()};
-                }
+                runtime_err_handler(ss.str());
             }
         }
     }
@@ -1156,19 +1062,11 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
             hip_status = obuffer_data[i].alloc(obuffer_sizes[i]);
             if(hip_status != hipSuccess)
             {
-                ++n_hip_failures;
                 std::stringstream ss;
                 ss << "hipMalloc failure for output buffer " << i << " size " << obuffer_sizes[i]
                    << "(" << byte_size_to_str(obuffer_sizes[i]) << ") with code "
                    << hipError_to_string(hip_status);
-                if(skip_runtime_fails)
-                {
-                    throw ROCFFT_SKIP{ss.str()};
-                }
-                else
-                {
-                    throw ROCFFT_FAIL{ss.str()};
-                }
+                runtime_err_handler(ss.str());
             }
 
             // If we're validating output strides, init the
@@ -1181,17 +1079,9 @@ inline void fft_vs_reference_impl(Tparams& params, bool round_trip)
                     = hipMemset(obuffer_data[i].data(), OUTPUT_INIT_PATTERN, obuffer_sizes[i]);
                 if(hip_status != hipSuccess)
                 {
-                    ++n_hip_failures;
                     std::stringstream ss;
                     ss << "hipMemset failure with error " << hip_status;
-                    if(skip_runtime_fails)
-                    {
-                        throw ROCFFT_SKIP{ss.str()};
-                    }
-                    else
-                    {
-                        throw ROCFFT_FAIL{ss.str()};
-                    }
+                    runtime_err_handler(ss.str());
                 }
             }
         }
