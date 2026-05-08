@@ -123,7 +123,7 @@ INSTANTIATE_TEST_SUITE_P(
                                              ooffset_range_zero,
                                              place_range,
                                              false,
-                                             true)),
+                                             callbacks_full)),
     accuracy_test::TestName);
 
 INSTANTIATE_TEST_SUITE_P(DISABLED_callback,
@@ -140,7 +140,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_callback,
                                                                   ooffset_range,
                                                                   place_range,
                                                                   false,
-                                                                  true)),
+                                                                  callbacks_full)),
                          accuracy_test::TestName);
 
 // one of the obvious use cases for callbacks is to implement result

@@ -99,7 +99,7 @@ inline auto param_checkstride()
                         param.otype          = std::get<3>(types);
                         // FIXME: handle JIT too
                         if(callback)
-                            param.run_callbacks = fft_params::fft_callback_type::LEGACY;
+                            param.run_callbacks = fft_callback_type_legacy;
                         param.check_output_strides = true;
 
                         param.validate();

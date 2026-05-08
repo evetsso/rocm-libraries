@@ -277,7 +277,7 @@ public:
                     throw std::runtime_error("rocfft_plan_description_set_comm failed");
             }
 
-            if(run_callbacks == fft_callback_type::JIT)
+            if(run_callbacks == fft_callback_type_jit)
             {
                 check_jit_callback_params();
                 fft_status = rocfft.plan_description_set_load_callback(desc,
@@ -417,7 +417,7 @@ public:
     // fails.
     void check_jit_callback_params() const
     {
-        if(run_callbacks != fft_callback_type::JIT)
+        if(run_callbacks != fft_callback_type_jit)
             return;
 
         // Currently, callback tests will set both load + store callbacks
@@ -437,7 +437,7 @@ public:
                              size_t              load_cb_shared_mem_bytes  = 0,
                              size_t              store_cb_shared_mem_bytes = 0) override
     {
-        if(run_callbacks == fft_callback_type::LEGACY)
+        if(run_callbacks == fft_callback_type_legacy)
         {
             auto expected_load_cb_count  = expected_callback_count(ifields);
             auto expected_store_cb_count = expected_callback_count(ofields);

@@ -90,7 +90,7 @@ INSTANTIATE_TEST_SUITE_P(
                                              {{0, 0}},
                                              {fft_placement_notinplace},
                                              false,
-                                             false)),
+                                             callbacks_none)),
     accuracy_test::TestName);
 
 // run an out-of-place transform that casts input from short to float
@@ -98,7 +98,7 @@ TEST_P(change_type, short_to_float)
 {
     rocfft_params params(GetParam());
     // FIXME: handle JIT too
-    params.run_callbacks = fft_params::fft_callback_type::LEGACY;
+    params.run_callbacks = fft_callback_type_legacy;
 
     ASSERT_EQ(params.create_plan(), fft_status_success);
 
