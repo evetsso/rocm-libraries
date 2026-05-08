@@ -114,7 +114,9 @@ std::vector<fft_params> param_generator_multi_gpu(const SplitType type, const in
         ooffset_range_zero,
         place_range,
         false,
-        {fft_callback_type_none, fft_callback_type_legacy, fft_callback_type_jit});
+        // legacy callbacks need -fgpu-rdc, but that causes build
+        // nondeterminism in kpack
+        {fft_callback_type_none, /*fft_callback_type_legacy,*/ fft_callback_type_jit});
 
     std::vector<fft_params> all_params;
 

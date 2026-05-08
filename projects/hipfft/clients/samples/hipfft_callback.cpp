@@ -1,4 +1,4 @@
-// Copyright (C) 2021 - 2025 Advanced Micro Devices, Inc. All rights
+// Copyright (C) 2021 - 2026 Advanced Micro Devices, Inc. All rights
 // reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -107,9 +107,8 @@ int main()
 
     // Create HIP device object and copy data to device
     // Use hipfftComplex for single-precision
-    hipError_t           hip_rt;
     hipfftDoubleComplex *x, *filter_dev;
-    hip_rt = hipMalloc(&x, complex_bytes);
+    hipError_t           hip_rt = hipMalloc(&x, complex_bytes);
     if(hip_rt != hipSuccess)
         throw std::runtime_error("hipMalloc failed");
     hip_rt = hipMalloc(&filter_dev, complex_bytes);
@@ -191,7 +190,8 @@ int main()
     }
     std::cout << std::endl;
 
-    hipfftDestroy(plan);
+    if(hipfftDestroy(plan) != HIPFFT_SUCCESS)
+        throw std::runtime_error("hipfftDestroy failed");
 
     hip_rt = hipFree(cbdata_dev);
     if(hip_rt != hipSuccess)
