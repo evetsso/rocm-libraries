@@ -276,6 +276,31 @@ public:
                    != rocfft_status_success)
                     throw std::runtime_error("rocfft_plan_description_set_comm failed");
             }
+
+            if(run_callbacks == fft_callback_type_jit)
+            {
+                check_jit_callback_params();
+                fft_status = rocfft.plan_description_set_load_callback(desc,
+                                                                       load_cb_symbol,
+                                                                       load_cb_func.data(),
+                                                                       load_cb_func.size(),
+                                                                       load_cb_data.data(),
+                                                                       load_cb_shared_mem_bytes);
+                if(fft_status != rocfft_status_success)
+                {
+                    throw std::runtime_error("rocfft_plan_description_set_load_callback failed");
+                }
+                fft_status = rocfft.plan_description_set_store_callback(desc,
+                                                                        store_cb_symbol,
+                                                                        store_cb_func.data(),
+                                                                        store_cb_func.size(),
+                                                                        store_cb_data.data(),
+                                                                        store_cb_shared_mem_bytes);
+                if(fft_status != rocfft_status_success)
+                {
+                    throw std::runtime_error("rocfft_plan_description_set_store_callback failed");
+                }
+            }
         }
 
         if(plan == nullptr)
@@ -364,7 +389,7 @@ public:
 
     // Return the number of expected callback entries for supplied
     // fields.
-    size_t expected_callback_count(const std::vector<fft_field>& fields)
+    size_t expected_callback_count(const std::vector<fft_field>& fields) const
     {
         // If fields are not specified, we consider the input or
         // output to have a single brick (and thus expect a single
@@ -387,6 +412,24 @@ public:
         return expected_callbacks;
     }
 
+    // Check that JIT callback parameters have been specified properly,
+    // if JIT callbacks are required.  Throws an exception if the check
+    // fails.
+    void check_jit_callback_params() const
+    {
+        if(run_callbacks != fft_callback_type_jit)
+            return;
+
+        // Currently, callback tests will set both load + store callbacks
+        // at the same time
+        if(load_cb_symbol == nullptr || store_cb_symbol == nullptr)
+            throw std::invalid_argument("null cb symbol");
+        auto expected_load_cb_data_count  = expected_callback_count(ifields);
+        auto expected_store_cb_data_count = expected_callback_count(ofields);
+        check_callback_vec(&load_cb_data, expected_load_cb_data_count, false);
+        check_callback_vec(&store_cb_data, expected_store_cb_data_count, false);
+    }
+
     fft_status set_callbacks(std::vector<void*>* load_cb_func,
                              std::vector<void*>* load_cb_data,
                              std::vector<void*>* store_cb_func,
@@ -394,7 +437,7 @@ public:
                              size_t              load_cb_shared_mem_bytes  = 0,
                              size_t              store_cb_shared_mem_bytes = 0) override
     {
-        if(run_callbacks)
+        if(run_callbacks == fft_callback_type_legacy)
         {
             auto expected_load_cb_count  = expected_callback_count(ifields);
             auto expected_store_cb_count = expected_callback_count(ofields);
@@ -766,6 +809,8 @@ struct rocfft_funcs
     ROCFFT_API_WRAP(plan_description_set_comm);
     ROCFFT_API_WRAP(plan_description_set_data_layout);
     ROCFFT_API_WRAP(plan_description_set_scale_factor);
+    ROCFFT_API_WRAP(plan_description_set_load_callback);
+    ROCFFT_API_WRAP(plan_description_set_store_callback);
     ROCFFT_API_WRAP(plan_destroy);
     ROCFFT_API_WRAP(plan_get_work_buffer_size);
     ROCFFT_API_WRAP(setup);
@@ -849,6 +894,8 @@ struct dyna_rocfft_funcs
     ROCFFT_DYNA_API_WRAP(plan_description_set_comm);
     ROCFFT_DYNA_API_WRAP(plan_description_set_data_layout);
     ROCFFT_DYNA_API_WRAP(plan_description_set_scale_factor);
+    ROCFFT_DYNA_API_WRAP(plan_description_set_load_callback);
+    ROCFFT_DYNA_API_WRAP(plan_description_set_store_callback);
     ROCFFT_DYNA_API_WRAP(plan_destroy);
     ROCFFT_DYNA_API_WRAP(plan_get_work_buffer_size);
     ROCFFT_DYNA_API_WRAP(setup);
@@ -880,6 +927,8 @@ struct dyna_rocfft_funcs
         ROCFFT_DYNA_API_LOAD(plan_description_set_comm);
         ROCFFT_DYNA_API_LOAD(plan_description_set_data_layout);
         ROCFFT_DYNA_API_LOAD(plan_description_set_scale_factor);
+        ROCFFT_DYNA_API_LOAD(plan_description_set_store_callback);
+        ROCFFT_DYNA_API_LOAD(plan_description_set_load_callback);
         ROCFFT_DYNA_API_LOAD(plan_destroy);
         ROCFFT_DYNA_API_LOAD(plan_get_work_buffer_size);
         ROCFFT_DYNA_API_LOAD(setup);
@@ -918,6 +967,10 @@ struct dyna_rocfft_funcs
         std::swap(this->plan_description_set_comm, other.plan_description_set_comm);
         std::swap(this->plan_description_set_data_layout, other.plan_description_set_data_layout);
         std::swap(this->plan_description_set_scale_factor, other.plan_description_set_scale_factor);
+        std::swap(this->plan_description_set_load_callback,
+                  other.plan_description_set_load_callback);
+        std::swap(this->plan_description_set_store_callback,
+                  other.plan_description_set_store_callback);
         std::swap(this->plan_destroy, other.plan_destroy);
         std::swap(this->plan_get_work_buffer_size, other.plan_get_work_buffer_size);
         std::swap(this->setup, other.setup);

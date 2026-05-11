@@ -624,7 +624,9 @@ void exec_testcases(std::function<AllParams(const std::vector<std::string>&)> ma
         std::vector<void*>                        load_cb_data;
         std::vector<void*>                        store_cb_func;
         std::vector<void*>                        store_cb_data;
-        if(all_params[testcase].run_callbacks)
+        // Set legacy callbacks at execute time
+        // FIXME: implement JIT callbacks
+        if(all_params[testcase].run_callbacks == fft_callback_type_legacy)
         {
             auto runtime_err_handler
                 = [&](const std::string& msg) { throw std::runtime_error(msg); };

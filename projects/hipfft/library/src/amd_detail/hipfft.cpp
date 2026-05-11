@@ -633,27 +633,29 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
     // set JIT callbacks if specified
     if(plan->load_callback_symbol && plan->load_callback_bitcode && plan->load_callback_bitcode_len)
     {
-        for(auto rocfft_desc : {ip_forward_desc, op_forward_desc, ip_inverse_desc, op_inverse_desc})
+        for(auto rocfft_desc : all_descs)
         {
-            rocfft_plan_description_set_load_callback(rocfft_desc,
-                                                      plan->load_callback_symbol,
-                                                      plan->load_callback_bitcode,
-                                                      plan->load_callback_bitcode_len,
-                                                      plan->load_callback_data,
-                                                      plan->load_callback_lds_bytes);
+            ROC_FFT_CHECK_INVALID_VALUE(
+                rocfft_plan_description_set_load_callback(rocfft_desc.get(),
+                                                          plan->load_callback_symbol,
+                                                          plan->load_callback_bitcode,
+                                                          plan->load_callback_bitcode_len,
+                                                          plan->load_callback_data,
+                                                          plan->load_callback_lds_bytes));
         }
     }
     if(plan->store_callback_symbol && plan->store_callback_bitcode
        && plan->store_callback_bitcode_len)
     {
-        for(auto rocfft_desc : {ip_forward_desc, op_forward_desc, ip_inverse_desc, op_inverse_desc})
+        for(auto rocfft_desc : all_descs)
         {
-            rocfft_plan_description_set_store_callback(rocfft_desc,
-                                                       plan->store_callback_symbol,
-                                                       plan->store_callback_bitcode,
-                                                       plan->store_callback_bitcode_len,
-                                                       plan->store_callback_data,
-                                                       plan->store_callback_lds_bytes);
+            ROC_FFT_CHECK_INVALID_VALUE(
+                rocfft_plan_description_set_store_callback(rocfft_desc.get(),
+                                                           plan->store_callback_symbol,
+                                                           plan->store_callback_bitcode,
+                                                           plan->store_callback_bitcode_len,
+                                                           plan->store_callback_data,
+                                                           plan->store_callback_lds_bytes));
         }
     }
 
