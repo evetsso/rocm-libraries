@@ -66,7 +66,7 @@ include( ROCMInstallTargets )
 
 # embed rocfft_complex.h so it can be used in hiprtc for callbacks
 find_package (Python3 3.6 COMPONENTS Interpreter REQUIRED)
-set( callback_embed_command ${CMAKE_CURRENT_SOURCE_DIR}/../../library/src/device/kernel-generator-embed-cpp.py )
+set( callback_embed_command ${CMAKE_CURRENT_SOURCE_DIR}/../../shared/embed-to-header-rtc.py )
 # generated source file
 set( callback_embed_cpp ${CMAKE_CURRENT_BINARY_DIR}/callback-embed.cpp )
 # files that need to be embedded into the test, to be able to generate callback code
