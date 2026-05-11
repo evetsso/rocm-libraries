@@ -106,7 +106,7 @@ auto forward_transform_types
 
 // legacy callbacks need -fgpu-rdc, but that causes build
 // nondeterminism in kpack
-INSTANTIATE_TEST_SUITE_P(DISABLED_callback_no_offset,
+INSTANTIATE_TEST_SUITE_P(callback,
                          accuracy_test,
                          ::testing::ValuesIn(param_generator_base(test_prob,
                                                                   forward_transform_types,
@@ -120,10 +120,10 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_callback_no_offset,
                                                                   ooffset_range_zero,
                                                                   place_range,
                                                                   false,
-                                                                  callbacks_full)),
+                                                                  {fft_callback_type_jit})),
                          accuracy_test::TestName);
 
-INSTANTIATE_TEST_SUITE_P(DISABLED_callback,
+INSTANTIATE_TEST_SUITE_P(DISABLED_callback_offset,
                          accuracy_test,
                          ::testing::ValuesIn(param_generator_base(test_prob,
                                                                   forward_transform_types,
