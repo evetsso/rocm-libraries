@@ -140,7 +140,8 @@ void make_load_store_ops(Function&                      f,
 }
 
 std::string load_store_decls(const std::optional<LoadOps>&  loadOps,
-                             const std::optional<StoreOps>& storeOps)
+                             const std::optional<StoreOps>& storeOps,
+                             const CallbackType             cbtype)
 {
     // FIXME: need to namespace things so user-chosen symbols can't
     // (easily) collide with our internal syms
@@ -148,12 +149,12 @@ std::string load_store_decls(const std::optional<LoadOps>&  loadOps,
     if(loadOps && loadOps->has_spirv())
     {
         ops_declarations += "#define ROCFFT_USE_JIT_CB_LOAD\n";
-        ops_declarations += loadOps->forward_decls();
+        ops_declarations += loadOps->forward_decls(cbtype);
     }
     if(storeOps && storeOps->has_spirv())
     {
         ops_declarations += "#define ROCFFT_USE_JIT_CB_STORE\n";
-        ops_declarations += storeOps->forward_decls();
+        ops_declarations += storeOps->forward_decls(cbtype);
     }
     return ops_declarations;
 }

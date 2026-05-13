@@ -69,7 +69,7 @@ std::string r2c_copy_rtc(const std::string& kernel_name, const RealComplexSpecs&
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += rtc_const_cbtype_decl(specs.cbtype);
@@ -355,7 +355,7 @@ std::string realcomplex_even_rtc(const std::string& kernel_name, const RealCompl
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += rtc_const_cbtype_decl(specs.cbtype);
@@ -629,7 +629,7 @@ std::string realcomplex_even_transpose_rtc(const std::string&                   
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += rtc_const_cbtype_decl(specs.cbtype);

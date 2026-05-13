@@ -87,7 +87,7 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision, array_type_is_complex(specs.inArrayType));
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += rtc_const_cbtype_decl(specs.cbtype);

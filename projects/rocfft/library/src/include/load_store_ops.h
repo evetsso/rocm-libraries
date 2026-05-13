@@ -21,6 +21,7 @@
 #ifndef ROCFFT_LOAD_STORE_OPS_H
 #define ROCFFT_LOAD_STORE_OPS_H
 
+#include "../device/kernels/callback.h"
 #include <hip/hip_runtime_api.h>
 #include <hip/linker_types.h>
 #include <optional>
@@ -78,13 +79,24 @@ struct LoadOps
         return spirv_cb.enabled();
     }
 
-    std::string forward_decls() const
+    std::string forward_decls(const CallbackType cbtype) const
     {
         std::string ret;
         if(spirv_cb.enabled())
         {
-            ret += std::string("extern \"C\" __device__ scalar_type ") + spirv_cb.symbol_name
-                   + "(scalar_type*, size_t, void*, void*);\n";
+            // real forward FFT kernel works with complex elements but
+            // was passed a real-type callback for loading
+            if(cbtype == CallbackType::USER_LOAD_STORE_R2C)
+            {
+                ret += std::string("extern \"C\" __device__ real_type_t<scalar_type> ")
+                       + spirv_cb.symbol_name
+                       + "(real_type_t<scalar_type>*, size_t, void*, void*);\n";
+            }
+            else
+            {
+                ret += std::string("extern \"C\" __device__ scalar_type ") + spirv_cb.symbol_name
+                       + "(scalar_type*, size_t, void*, void*);\n";
+            }
             // declare a constant name for the load callback as well
             ret += "__device__ auto load_cb_jit_fn = ";
             ret += spirv_cb.symbol_name;
@@ -180,13 +192,24 @@ struct StoreOps
         return spirv_cb.enabled();
     }
 
-    std::string forward_decls() const
+    std::string forward_decls(const CallbackType cbtype) const
     {
         std::string ret;
         if(spirv_cb.enabled())
         {
-            ret += std::string("extern \"C\" __device__ void ") + spirv_cb.symbol_name
-                   + "(scalar_type*, size_t, scalar_type, void*, void*);\n";
+            // real inverse FFT kernel works with complex elements but
+            // was passed a real-type callback for storing
+            if(cbtype == CallbackType::USER_LOAD_STORE_C2R)
+            {
+                ret += std::string("extern \"C\" __device__ void ") + spirv_cb.symbol_name
+                       + "(real_type_t<scalar_type>*, size_t, real_type_t<scalar_type>, void*, "
+                         "void*);\n";
+            }
+            else
+            {
+                ret += std::string("extern \"C\" __device__ void ") + spirv_cb.symbol_name
+                       + "(scalar_type*, size_t, scalar_type, void*, void*);\n";
+            }
             // declare a constant name for the load callback as well
             ret += "__device__ auto store_cb_jit_fn = ";
             ret += spirv_cb.symbol_name;
@@ -231,6 +254,7 @@ void        make_load_store_ops(Function&                      f,
                                 const std::optional<StoreOps>& storeOps);
 // forward declarations required by ops (e.g. JIT callbacks)
 std::string load_store_decls(const std::optional<LoadOps>&  loadOps,
-                             const std::optional<StoreOps>& storeOps);
+                             const std::optional<StoreOps>& storeOps,
+                             const CallbackType             cbtype);
 
 #endif

@@ -763,7 +763,7 @@ public:
             return R"lambda(
     	    auto load_cb = [load_cb_fn](scalar_type* data, size_t offset, void* cbdata, void* sharedMem)
     	    {
-                auto real_cb = reinterpret_cast<typename callback_type<real_type_t<scalar_type>>::load>(load_cb_fn);
+                auto real_cb = get_load_cb<real_type_t<scalar_type>,cbtype>(load_cb_fn);
                 return scalar_type
                 {
                     real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, cbdata, sharedMem),
@@ -794,7 +794,7 @@ public:
             return R"lambda(
                 auto store_cb = [store_cb_fn](scalar_type* data, size_t offset, scalar_type elem, void* cbdata, void* sharedMem)
                 {
-                    auto real_cb = reinterpret_cast<typename callback_type<real_type_t<scalar_type>>::store>(store_cb_fn);
+                    auto real_cb = get_store_cb<real_type_t<scalar_type>,cbtype>(store_cb_fn);
                     real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, elem.x, cbdata, sharedMem);
                     real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);
                 };

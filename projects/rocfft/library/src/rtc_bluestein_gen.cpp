@@ -74,7 +74,7 @@ std::string bluestein_single_rtc(const std::string& kernel_name, const Bluestein
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += butterfly_constant_h;
@@ -236,7 +236,7 @@ std::string bluestein_multi_rtc(const std::string& kernel_name, const BluesteinM
     src += common_h;
     src += device_enum_h;
     src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
     src += callback_h;
 
     src += rtc_const_cbtype_decl(specs.cbtype);
