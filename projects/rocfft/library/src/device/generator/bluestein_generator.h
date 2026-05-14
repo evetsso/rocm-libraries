@@ -957,8 +957,7 @@ private:
         auto load_expression = get_load_expression();
 
         StatementList& body = f.body;
-        body += CallbackLoadDeclaration{blueData.scalar_type.render(),
-                                        blueData.callback_type.render()};
+        body += CallbackLoadDeclaration{};
         body += ReturnExpr{*load_expression};
 
         return f;
@@ -1008,8 +1007,7 @@ private:
         }
 
         StatementList& body = f.body;
-        body += CallbackLoadDeclaration{blueData.scalar_type.render(),
-                                        blueData.callback_type.render()};
+        body += CallbackLoadDeclaration{};
         body += If{blueData.transform_idx >= blueData.length_N_blue,
                    {
                        Call{"return", {CallExpr{"scalar_type", {0, 0}}}},
@@ -1045,8 +1043,7 @@ private:
         auto load_expression = get_load_expression();
 
         StatementList& body = f.body;
-        body += CallbackLoadDeclaration{blueData.scalar_type.render(),
-                                        blueData.callback_type.render()};
+        body += CallbackLoadDeclaration{};
         body += ReturnExpr(*load_expression);
 
         return f;
@@ -1083,8 +1080,7 @@ private:
             load_expression_2 = get_load_expression(blueData.data_idx + blueData.length_M_blue);
 
         StatementList& body = f.body;
-        body += CallbackLoadDeclaration{blueData.scalar_type.render(),
-                                        blueData.callback_type.render()};
+        body += CallbackLoadDeclaration{};
         body += Declaration{elem_scalar};
         body += Declaration{aux_scalar};
         body += Declaration{aux_real};
@@ -1119,8 +1115,7 @@ private:
         auto load_expression = get_load_expression();
 
         StatementList& body = f.body;
-        body += CallbackLoadDeclaration{blueData.scalar_type.render(),
-                                        blueData.callback_type.render()};
+        body += CallbackLoadDeclaration{};
         body += ReturnExpr(*load_expression);
 
         return f;
@@ -1144,8 +1139,7 @@ private:
         auto store_statement = get_store_statement();
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += *store_statement;
 
         return f;
@@ -1169,8 +1163,7 @@ private:
         auto store_statement = get_store_statement();
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += *store_statement;
 
         return f;
@@ -1194,8 +1187,7 @@ private:
         auto store_statement = get_store_statement();
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += *store_statement;
 
         return f;
@@ -1225,8 +1217,7 @@ private:
             store_statement = get_store_statement(blueData.data_idx + blueData.length_M_blue);
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += *store_statement;
 
         return f;
@@ -1250,8 +1241,7 @@ private:
         auto store_statement = get_store_statement();
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += *store_statement;
 
         return f;
@@ -1291,8 +1281,7 @@ private:
                 - blueData.data_elem.y() * blueData.chirp[blueData.transform_idx].x());
 
         StatementList& body = f.body;
-        body += CallbackStoreDeclaration{blueData.scalar_type.render(),
-                                         blueData.callback_type.render()};
+        body += CallbackStoreDeclaration{};
         body += If{
             blueData.transform_idx < blueData.length_N_blue,
             {

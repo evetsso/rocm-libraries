@@ -148,12 +148,10 @@ std::string load_store_decls(const std::optional<LoadOps>&  loadOps,
     std::string ops_declarations;
     if(loadOps && loadOps->has_spirv())
     {
-        ops_declarations += "#define ROCFFT_USE_JIT_CB_LOAD\n";
         ops_declarations += loadOps->forward_decls(cbtype);
     }
     if(storeOps && storeOps->has_spirv())
     {
-        ops_declarations += "#define ROCFFT_USE_JIT_CB_STORE\n";
         ops_declarations += storeOps->forward_decls(cbtype);
     }
     return ops_declarations;

@@ -329,23 +329,6 @@ static const char* rtc_cbtype_name(CallbackType cbtype)
         return "_CBc2r";
     }
 }
-
-// realDataAsComplex is true if we're treating real data as complex
-// (in an even-length real-complex FFT)
-static const std::string rtc_const_cbtype_decl(CallbackType cbtype)
-{
-    switch(cbtype)
-    {
-    case CallbackType::NONE:
-        return "static const CallbackType cbtype = CallbackType::NONE;\n";
-    case CallbackType::USER_LOAD_STORE:
-        return "static const CallbackType cbtype = CallbackType::USER_LOAD_STORE;\n";
-    case CallbackType::USER_LOAD_STORE_R2C:
-        return "static const CallbackType cbtype = CallbackType::USER_LOAD_STORE_R2C;\n";
-    case CallbackType::USER_LOAD_STORE_C2R:
-        return "static const CallbackType cbtype = CallbackType::USER_LOAD_STORE_C2R;\n";
-    }
-}
 #endif
 
 #endif

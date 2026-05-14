@@ -532,8 +532,6 @@ std::string stockham_rtc(const StockhamGeneratorSpecs&    specs,
         break;
     }
 
-    src += rtc_const_cbtype_decl(cbtype);
-
     switch(dir2regMode)
     {
     case DirectRegType::FORCE_OFF_OR_NOT_SUPPORT:
@@ -582,7 +580,11 @@ std::string stockham_rtc(const StockhamGeneratorSpecs&    specs,
     src += "static const size_t large_twiddle_base = " + std::to_string(largeTwdBase) + ";\n";
     src += "static const size_t large_twiddle_steps = " + std::to_string(largeTwdSteps) + ";\n";
 
-    *global = make_callback_realcomplex(*global, cbtype);
+    *global = make_callback_realcomplex(
+        *global,
+        cbtype,
+        (loadOps && loadOps->has_spirv()) ? loadOps->spirv_cb.symbol_name : nullptr,
+        (storeOps && storeOps->has_spirv()) ? storeOps->spirv_cb.symbol_name : nullptr);
 
     *global = make_rtc(*global, kernel_name);
     src += global->render();
