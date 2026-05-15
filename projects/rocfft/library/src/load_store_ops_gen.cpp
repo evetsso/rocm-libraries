@@ -141,18 +141,20 @@ void make_load_store_ops(Function&                      f,
 
 std::string load_store_decls(const std::optional<LoadOps>&  loadOps,
                              const std::optional<StoreOps>& storeOps,
-                             const CallbackType             cbtype)
+                             const CallbackType             cbtype,
+                             const char*                    load_data_type,
+                             const char*                    store_data_type)
 {
     // FIXME: need to namespace things so user-chosen symbols can't
     // (easily) collide with our internal syms
     std::string ops_declarations;
     if(loadOps && loadOps->has_spirv())
     {
-        ops_declarations += loadOps->forward_decls(cbtype);
+        ops_declarations += loadOps->forward_decls(cbtype, load_data_type);
     }
     if(storeOps && storeOps->has_spirv())
     {
-        ops_declarations += storeOps->forward_decls(cbtype);
+        ops_declarations += storeOps->forward_decls(cbtype, store_data_type);
     }
     return ops_declarations;
 }

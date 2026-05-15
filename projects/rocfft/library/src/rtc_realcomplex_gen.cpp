@@ -65,19 +65,19 @@ std::string r2c_copy_rtc(const std::string& kernel_name, const RealComplexSpecs&
     std::string src;
     // includes and declarations
 
-    src += rocfft_complex_h;
-    src += common_h;
-    src += device_enum_h;
-    src += rtc_precision_type_decl(specs.precision);
-    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype);
-    src += callback_h;
-
-    src += "static const unsigned int dim = " + std::to_string(specs.dim) + ";\n";
-
     const char* input_type
         = specs.scheme == CS_KERNEL_COPY_R_TO_CMPLX ? "real_type_t<scalar_type>" : "scalar_type";
     const char* output_type
         = specs.scheme == CS_KERNEL_COPY_CMPLX_TO_R ? "real_type_t<scalar_type>" : "scalar_type";
+
+    src += rocfft_complex_h;
+    src += common_h;
+    src += device_enum_h;
+    src += rtc_precision_type_decl(specs.precision);
+    src += load_store_decls(specs.loadOps, specs.storeOps, specs.cbtype, input_type, output_type);
+    src += callback_h;
+
+    src += "static const unsigned int dim = " + std::to_string(specs.dim) + ";\n";
 
     // function arguments
     Variable hermitian_size{"hermitian_size", "const unsigned int"};
@@ -242,7 +242,10 @@ std::string r2c_copy_rtc(const std::string& kernel_name, const RealComplexSpecs&
                                        "transform, so it would never be the last kernel to write",
                                        "to global memory.  don't bother going through the store cb",
                                        "to write global memory."};
-            guard.body += CallbackLoadDeclaration{};
+            // R to complex always loads real data
+            CallbackLoadDeclaration load;
+            load.scalar_type = input_type;
+            guard.body += load;
             guard.body += CallbackStoreDeclaration{};
 
             ComplexLiteral elem{LoadGlobal{input, inputIdx}, "0.0"};
@@ -276,7 +279,10 @@ std::string r2c_copy_rtc(const std::string& kernel_name, const RealComplexSpecs&
                                       "from global memory.  don't bother going through the load cb",
                                       "to read global memory."};
             func.body += CallbackLoadDeclaration{};
-            func.body += CallbackStoreDeclaration{};
+            // complex to R always stores real data
+            CallbackStoreDeclaration store;
+            store.scalar_type = output_type;
+            func.body += store;
 
             Variable elem{"elem", "auto"};
             func.body += Declaration{elem, input[inputIdx].x()};

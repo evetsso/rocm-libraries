@@ -749,72 +749,73 @@ class CallbackLoadDeclaration
 {
 public:
     CallbackLoadDeclaration() = default;
-    // CallbackLoadDeclaration(const char* jit_symbol, bool legacy_callback, bool r2c_callback)
-    //       : jit_symbol(jit_symbol)
-    //   {
-    //       if(!jit_symbol && cbtype != CallbackType::NONE)
-    //           legacy_callback = true;
-    //       if(cbtype == CallbackType::USER_LOAD_STORE_R2C)
-    //           r2c_callback = true;
-    //   }
     // non-null if we're using a JIT callback for loading
     const char* jit_symbol = nullptr;
     // are we using a legacy callback?
     bool legacy_callback = false;
     // whether we are loading complex data through a real-typed callback
-    bool        r2c_callback = false;
+    bool r2c_callback = false;
+    // the data type that the callback loads
+    std::string scalar_type = "scalar_type";
     std::string render() const
     {
+        std::string ret;
         if(r2c_callback)
         {
             if(jit_symbol)
             {
-                return R"(
-                // declare a lambda that calls the real JIT callback twice to
-                // load one complex element
-                auto load_cb = [](scalar_type* data, size_t offset, void* cbdata, void* sharedMem)
-                  {
-                      return scalar_type
-                      {
-                          load_cb_jit_fn(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, cbdata, sharedMem),
-                          load_cb_jit_fn(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, cbdata, sharedMem),
-                      };
-                  };
-              )";
+                ret += "// declare a lambda that calls the real JIT callback twice to\n";
+                ret += "// load one complex element\n";
+                ret += "auto load_cb = [](" + scalar_type
+                       + " * data, size_t offset, void* cbdata, void* sharedMem)\n";
+                ret += "  {\n";
+                ret += "  return " + scalar_type + "\n";
+                ret += "    {\n";
+                ret += "        load_cb_jit_fn(reinterpret_cast<real_type_t<" + scalar_type
+                       + ">*>(data), offset * 2, cbdata, sharedMem),\n";
+                ret += "        load_cb_jit_fn(reinterpret_cast<real_type_t<" + scalar_type
+                       + ">*>(data), offset * 2 + 1, cbdata, sharedMem),\n";
+                ret += "    };\n";
+                ret += "  };\n";
             }
             else
             {
                 if(legacy_callback)
                 {
-                    return R"(
-                  // declare a lambda that calls the real legacy callback twice to
-                  // load one complex element
-                  auto load_cb = [load_cb_fn](scalar_type* data, size_t offset, void* cbdata, void* sharedMem)
-                    {
-                        auto real_cb = reinterpret_cast<typename callback_type<real_type_t<scalar_type>>::load>(load_cb_fn);
-                        return scalar_type
-                        {
-                            real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, cbdata, sharedMem),
-                            real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, cbdata, sharedMem),
-                        };
-                    };
-                  )";
+                    ret += "// declare a lambda that calls the real legacy callback twice to\n";
+                    ret += "// load one complex element\n";
+                    ret += "auto load_cb = [load_cb_fn](" + scalar_type
+                           + "* data, size_t offset, void* cbdata, void* sharedMem)\n";
+                    ret += "  {\n";
+                    ret += "      auto real_cb = reinterpret_cast<typename "
+                           "callback_type<real_type_t<"
+                           + scalar_type + ">>::load>(load_cb_fn);\n";
+                    ret += "      return " + scalar_type + "\n";
+                    ret += "      {\n";
+                    ret += "          real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2, cbdata, sharedMem),\n";
+                    ret += "          real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2 + 1, cbdata, sharedMem),\n";
+                    ret += "      };\n";
+                    ret += "  };\n";
                 }
                 else
                 {
-                    return R"(
-                  // declare a lambda that calls the default callback twice to
-                  // load one complex element
-                  auto load_cb = [](scalar_type* data, size_t offset, void* cbdata, void* sharedMem)
-                    {
-                        auto real_cb = load_cb_default<real_type_t<scalar_type>>;
-                        return scalar_type
-                        {
-                            real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, cbdata, sharedMem),
-                            real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, cbdata, sharedMem),
-                        };
-                    };
-                )";
+                    ret += "// declare a lambda that calls the default callback twice to\n";
+                    ret += "// load one complex element\n";
+                    ret += "auto load_cb = [](" + scalar_type
+                           + "* data, size_t offset, void* cbdata, void* sharedMem)\n";
+                    ret += "  {\n";
+                    ret += "      auto real_cb = load_cb_default<real_type_t<" + scalar_type
+                           + ">>;\n";
+                    ret += "      return " + scalar_type + "\n";
+                    ret += "      {\n";
+                    ret += "          real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2, cbdata, sharedMem),\n";
+                    ret += "          real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2 + 1, cbdata, sharedMem),\n";
+                    ret += "      };\n";
+                    ret += "  };\n";
                 }
             }
         }
@@ -822,21 +823,23 @@ public:
         {
             if(jit_symbol)
             {
-                return "auto load_cb = load_cb_jit_fn;";
+                return "auto load_cb = load_cb_jit_fn;\n";
             }
             else
             {
                 if(legacy_callback)
                 {
                     return "auto load_cb = reinterpret_cast<typename "
-                           "callback_type<scalar_type>::load>(load_cb_fn);";
+                           "callback_type<"
+                           + scalar_type + ">::load>(load_cb_fn);\n";
                 }
                 else
                 {
-                    return "auto load_cb = load_cb_default<scalar_type>;";
+                    return "auto load_cb = load_cb_default<" + scalar_type + ">;\n";
                 }
             }
         }
+        return ret;
     }
 };
 
@@ -844,63 +847,65 @@ class CallbackStoreDeclaration
 {
 public:
     CallbackStoreDeclaration() = default;
-    // CallbackStoreDeclaration(const char* jit_symbol, CallbackType cbtype)
-    //     : jit_symbol(jit_symbol)
-    // {
-    //     if(!jit_symbol && cbtype != CallbackType::NONE)
-    //         legacy_callback = true;
-    //     if(cbtype == CallbackType::USER_LOAD_STORE_C2R)
-    //         c2r_callback = true;
-    // }
     // non-null if we're using a JIT callback for storing
     const char* jit_symbol = nullptr;
     // are we using a legacy callback?
     bool legacy_callback = false;
     // whether we are storing complex data through a real-typed callback
-    bool        c2r_callback = false;
+    bool c2r_callback = false;
+    // the data type that the callback stores
+    std::string scalar_type = "scalar_type";
     std::string render() const
     {
+        std::string ret;
         if(c2r_callback)
         {
             if(jit_symbol)
             {
-                return R"(
-                // declare a lambda that calls the real JIT callback twice to
-                // store one complex element
-                auto store_cb = [](scalar_type* data, size_t offset, scalar_type elem, void* cbdata, void* sharedMem)
-                  {
-                    store_cb_jit_fn(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, elem.x, cbdata, sharedMem);
-                    store_cb_jit_fn(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);
-                  };
-              )";
+                ret += "// declare a lambda that calls the real JIT callback twice to\n";
+                ret += "// store one complex element\n";
+                ret += "auto store_cb = [](" + scalar_type + "* data, size_t offset, " + scalar_type
+                       + " elem, void* cbdata, void* sharedMem)\n";
+                ret += "  {\n";
+                ret += "    store_cb_jit_fn(reinterpret_cast<real_type_t<" + scalar_type
+                       + ">*>(data), offset * 2, elem.x, cbdata, sharedMem);\n";
+                ret += "    store_cb_jit_fn(reinterpret_cast<real_type_t<" + scalar_type
+                       + ">*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);\n";
+                ret += "  };\n";
             }
             else
             {
                 if(legacy_callback)
                 {
-                    return R"(
-                  // declare a lambda that calls the real legacy callback twice to
-                  // store one complex element
-                  auto store_cb = [store_cb_fn](scalar_type* data, size_t offset, scalar_type elem, void* cbdata, void* sharedMem)
-                    {
-                        auto real_cb = reinterpret_cast<typename callback_type<real_type_t<scalar_type>>::store>(store_cb_fn);
-                        real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, elem.x, cbdata, sharedMem);
-                        real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);
-                    };
-                  )";
+                    ret += "// declare a lambda that calls the real legacy callback twice to\n";
+                    ret += "// store one complex element\n";
+                    ret += "auto store_cb = [store_cb_fn](" + scalar_type
+                           + "* data, size_t offset, " + scalar_type
+                           + " elem, void* cbdata, void* sharedMem)\n";
+                    ret += "  {\n";
+                    ret += "      auto real_cb = reinterpret_cast<typename "
+                           "callback_type<real_type_t<"
+                           + scalar_type + ">>::store>(store_cb_fn);\n";
+                    ret += "      real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2, elem.x, cbdata, sharedMem);\n";
+                    ret += "      real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);\n";
+                    ret += "  };\n";
                 }
                 else
                 {
-                    return R"(
-                  // declare a lambda that calls the default callback twice to
-                  // store one complex element
-                  auto store_cb = [](scalar_type* data, size_t offset, scalar_type elem, void* cbdata, void* sharedMem)
-                    {
-                        auto real_cb = store_cb_default<real_type_t<scalar_type>>;
-                        real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2, elem.x, cbdata, sharedMem);
-                        real_cb(reinterpret_cast<real_type_t<scalar_type>*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);
-                    };
-                )";
+                    ret += "// declare a lambda that calls the default callback twice to\n";
+                    ret += "// store one complex element\n";
+                    ret += "auto store_cb = [](" + scalar_type + "* data, size_t offset, "
+                           + scalar_type + " elem, void* cbdata, void* sharedMem)\n";
+                    ret += "  {\n";
+                    ret += "      auto real_cb = store_cb_default<real_type_t<" + scalar_type
+                           + ">>;\n";
+                    ret += "      real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2, elem.x, cbdata, sharedMem);\n";
+                    ret += "      real_cb(reinterpret_cast<real_type_t<" + scalar_type
+                           + ">*>(data), offset * 2 + 1, elem.y, cbdata, sharedMem);\n";
+                    ret += "  };\n";
                 }
             }
         }
@@ -908,21 +913,23 @@ public:
         {
             if(jit_symbol)
             {
-                return "auto store_cb = store_cb_jit_fn;";
+                return "auto store_cb = store_cb_jit_fn;\n";
             }
             else
             {
                 if(legacy_callback)
                 {
                     return "auto store_cb = reinterpret_cast<typename "
-                           "callback_type<scalar_type>::store>(store_cb_fn);";
+                           "callback_type<"
+                           + scalar_type + ">::store>(store_cb_fn);\n";
                 }
                 else
                 {
-                    return "auto store_cb = store_cb_default<scalar_type>;";
+                    return "auto store_cb = store_cb_default<" + scalar_type + ">;\n";
                 }
             }
         }
+        return ret;
     }
 };
 
