@@ -1051,7 +1051,7 @@ void get_rank_store_callback_jit(const fft_params&                          para
 #endif
 
     store_cb_func = get_store_callback_jit(
-        params.itype, params.precision, runtime_err_handler, round_trip_inverse);
+        params.otype, params.precision, runtime_err_handler, round_trip_inverse);
     // Alloc callback data pointer on current device and add to output vec
     auto add_store_cb_data = [&]() {
         callback_test_data store_cb_data_host;
