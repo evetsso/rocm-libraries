@@ -488,11 +488,25 @@ std::string stockham_rtc(const StockhamGeneratorSpecs&    specs,
     if(device1)
         src += device1->render();
     if(bluestein_load)
+    {
+        *bluestein_load = make_callback_realcomplex(
+            *bluestein_load,
+            cbtype,
+            (loadOps && loadOps->has_spirv()) ? loadOps->spirv_cb.symbol_name : nullptr,
+            (storeOps && storeOps->has_spirv()) ? storeOps->spirv_cb.symbol_name : nullptr);
         src += bluestein_load->render();
+    }
     if(bluestein_intrinsic_load)
         src += bluestein_intrinsic_load->render();
     if(bluestein_store)
+    {
+        *bluestein_store = make_callback_realcomplex(
+            *bluestein_store,
+            cbtype,
+            (loadOps && loadOps->has_spirv()) ? loadOps->spirv_cb.symbol_name : nullptr,
+            (storeOps && storeOps->has_spirv()) ? storeOps->spirv_cb.symbol_name : nullptr);
         src += bluestein_store->render();
+    }
     if(bluestein_intrinsic_store)
         src += bluestein_intrinsic_store->render();
 

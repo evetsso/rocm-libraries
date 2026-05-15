@@ -1655,6 +1655,7 @@ struct BaseVisitor
         y.arguments     = visit_ArgumentList(x.arguments);
         y.templates     = visit_ArgumentList(x.templates);
         y.qualifier     = x.qualifier;
+        y.return_type   = x.return_type;
         y.launch_bounds = x.launch_bounds;
         return y;
     }
