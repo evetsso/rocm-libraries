@@ -97,6 +97,7 @@ set( rocfft-test_source
   hipGraph_test.cpp
   callback_change_type.cpp
   default_callbacks_test.cpp
+  jit_callback_api_test.cpp
   unit_test.cpp
   buffer_hash_test.cpp
   validate_length_stride.cpp
