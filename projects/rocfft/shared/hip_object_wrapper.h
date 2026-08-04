@@ -42,10 +42,14 @@ struct hip_object_wrapper_t
         const auto ret = TCreate(&obj, std::forward<Args>(arg)...);
         if(ret != TSuccess)
         {
+            std::string msg = "failed to allocate object of type ";
+            msg += typeid(T).name();
+            msg += ": ";
+            msg += std::to_string(ret);
             if constexpr(std::is_same_v<decltype(TSuccess), hipError_t>)
-                throw hip_runtime_error("hip object allocation failure", ret);
+                throw hip_runtime_error(msg, ret);
             else
-                throw std::runtime_error("object allocation failure");
+                throw std::runtime_error(msg);
         }
     }
 
