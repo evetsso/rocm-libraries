@@ -1,4 +1,4 @@
-// Copyright (C) 2022-2024 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (C) 2022 - 2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -237,8 +237,8 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
     {
         func.body += Assign{remaining, "old_blockIdx_z"};
     }
-    func.body += Declaration{offset_in, 0};
-    func.body += Declaration{offset_out, 0};
+    func.body += Declaration{offset_in, Literal{"0U"}};
+    func.body += Declaration{offset_out, Literal{"0U"}};
 
     // use specified dim to avoid loops if possible
     if(specs.dim > 3)
@@ -276,19 +276,24 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
     Variable global_write_idx{"global_write_idx", "auto"};
     Variable elem{"elem", "scalar_type"};
     Variable twl_idx{"twl_idx", "auto"};
+    Variable tileX_uint{"tileX_uint", "const unsigned int"};
+    Variable tileY_uint{"tileY_uint", "const unsigned int"};
+
+    func.body += Declaration{tileX_uint, Literal{specs.tileX}};
+    func.body += Declaration{tileY_uint, Literal{specs.tileY}};
 
     For read_loop{i, 0, i < elems_per_thread, 1};
     read_loop.pragma_unroll = true;
 
     read_loop.body
-        += Declaration{logical_row, specs.tileX * tileBlockIdx_y + tile_y_index + i * specs.tileY};
-    read_loop.body += Declaration{idx0, specs.tileX * tileBlockIdx_x + tile_x_index};
+        += Declaration{logical_row, tileX_uint * tileBlockIdx_y + tile_y_index + i * tileY_uint};
+    read_loop.body += Declaration{idx0, tileX_uint * tileBlockIdx_x + tile_x_index};
     read_loop.body += Declaration{idx1, logical_row};
     if(specs.dim != 2)
         read_loop.body += ModulusAssign(idx1, length1_var);
 
     if(specs.dim == 2)
-        read_loop.body += Declaration{idx2, 0};
+        read_loop.body += Declaration{idx2, Literal{"0U"}};
     else
         read_loop.body += Declaration{idx2, logical_row / length1_var};
 
@@ -314,7 +319,7 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
         read_loop.body
             += Call{twiddle_mul_macro, {twiddle_step_func, twiddles_large_var, twl_idx, elem}};
     }
-    read_loop.body += Assign{lds.at(tile_x_index, i * specs.tileY + tile_y_index), elem};
+    read_loop.body += Assign{lds.at(tile_x_index, i * tileY_uint + tile_y_index), elem};
 
     func.body += read_loop;
 
@@ -332,7 +337,7 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
                        0,
                        i < elems_per_thread,
                        1,
-                       {Assign{val[i], lds.at(tile_x_index + i * specs.tileY, tile_y_index)}}};
+                       {Assign{val[i], lds.at(tile_x_index + i * tileY_uint, tile_y_index)}}};
     transpose_loop.pragma_unroll = true;
     func.body += transpose_loop;
 
@@ -340,8 +345,8 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
     write_loop.pragma_unroll = true;
 
     write_loop.body
-        += Declaration{logical_col, specs.tileX * tileBlockIdx_x + tile_x_index + i * specs.tileY};
-    write_loop.body += Declaration{logical_row, specs.tileX * tileBlockIdx_y + tile_y_index};
+        += Declaration{logical_col, tileX_uint * tileBlockIdx_x + tile_x_index + i * tileY_uint};
+    write_loop.body += Declaration{logical_row, tileX_uint * tileBlockIdx_y + tile_y_index};
 
     write_loop.body += Declaration{idx0, logical_col};
     write_loop.body += Declaration{idx1, logical_row};
@@ -350,7 +355,7 @@ std::string transpose_rtc(const std::string& kernel_name, const TransposeSpecs& 
         write_loop.body += ModulusAssign(idx1, length1_var);
     }
     if(specs.dim == 2)
-        write_loop.body += Declaration{idx2, 0};
+        write_loop.body += Declaration{idx2, Literal{"0U"}};
     else
         write_loop.body += Declaration{idx2, logical_row / length1_var};
 
