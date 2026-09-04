@@ -66,12 +66,14 @@ endif()
 
 include( ROCMInstallTargets )
 
-set( bench_list rocfft-bench dyna-rocfft-bench )
+set( bench_list rocfft-bench dyna-rocfft-bench jit )
 foreach( bench ${bench_list})
   if(${bench} STREQUAL "rocfft-bench")
     set( bench_main bench.cpp )
-  else()
+  elseif(${bench} STREQUAL "dyna-rocfft-bench")
     set( bench_main dyna-bench.cpp )
+  else()
+    set( bench_main jit.cpp )
   endif()
   add_executable( ${bench}
     ../../shared/array_validator.cpp
@@ -100,7 +102,7 @@ foreach( bench ${bench_list})
     ${ROCM_CLANG_ROOT}/include
     )
 
-  if(${bench} STREQUAL "rocfft-bench")
+  if(${bench} STREQUAL "rocfft-bench" OR ${bench} STREQUAL "jit")
     target_link_libraries( ${bench}
       PRIVATE
       hip::device
