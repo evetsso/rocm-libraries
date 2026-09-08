@@ -213,6 +213,7 @@ void jitify(rocfft_params& params_jit)
     params_jit.store_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
     params_jit.store_jit_cb_state->symbol = "store_callback";
     params_jit.store_jit_cb_state->func   = callback_bitcode;
+    params_jit.run_callbacks              = fft_callback_type_jit;
 }
 
 void run_testcase(const std::vector<size_t>& length, size_t batch)
