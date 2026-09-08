@@ -177,7 +177,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
 
     const size_t       NTRIALS = 10;
     std::random_device randdev;
-    while(samples_kernel.size() < NTRIALS && samples_jit.size() < NTRIALS)
+    while(samples_kernel.size() < NTRIALS || samples_jit.size() < NTRIALS)
     {
         bool run_jit = randdev() % 2;
 
@@ -205,8 +205,11 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
                    / 2;
         }
     };
-    printf(
-        "median kernel: %f\nmedian jit: %f\n", get_median(samples_kernel), get_median(samples_jit));
+    printf("median kernel: %f (%zu samples)\nmedian jit: %f (%zu samples)\n",
+           get_median(samples_kernel),
+           samples_kernel.size(),
+           get_median(samples_jit),
+           samples_jit.size());
 }
 
 int main()
