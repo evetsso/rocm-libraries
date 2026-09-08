@@ -21,13 +21,14 @@ __device__ size_t compute_offset(size_t dim, const size_t* lengths)
 {
     size_t       offset = 0;
     size_t       stride = 1;
-    unsigned int idx    = threadIdx.x;
-    for(size_t i = 0; i <= dim; ++i)
+    unsigned int idx    = blockIdx.x * 32 + threadIdx.x;
+    for(size_t i = 0; i < dim; ++i)
     {
         offset += idx % lengths[i] * stride;
         idx = idx / lengths[i];
         stride *= lengths[i];
     }
+    offset += blockIdx.z * stride;
     return offset;
 }
 
@@ -57,10 +58,15 @@ void apply_callback(Tkernel                 kernel,
                     const gpubuf_t<size_t>& lengths_device,
                     rocfft_params&          params)
 {
-    dim3 gridDim{static_cast<unsigned int>(product(params.length.begin(), params.length.end())),
-                 1U,
-                 static_cast<unsigned int>(params.nbatch)};
-    dim3 blockDim{1U, 1U, 1U};
+    if(params.length.front() % 32)
+        throw std::runtime_error("X dim needs to be divisible by 32");
+
+    dim3 gridDim{
+        static_cast<unsigned int>(params.length.front() / 32
+                                  * product(params.length.begin() + 1, params.length.end())),
+        1U,
+        static_cast<unsigned int>(params.nbatch)};
+    dim3 blockDim{32U, 1U, 1U};
 
     kernel<<<gridDim, blockDim>>>(ptr, params.length.size(), lengths_device.data());
 }
@@ -98,7 +104,8 @@ void run_trial(rocfft_params&          params_kernel,
             load_callback_kernel, static_cast<float2*>(data.data()), lengths_device, params);
     }
 
-    params.execute(ptrs.data(), ptrs.data());
+    if(params.execute(ptrs.data(), ptrs.data()) != fft_status_success)
+        throw std::runtime_error("execute failed");
 
     if(!run_jit)
     {
@@ -129,6 +136,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
 
     if(!params_jit.valid())
         throw std::runtime_error("invalid params");
+    params_jit.create_plan();
 
     rocfft_params params_kernel;
     params_kernel.length = length;
@@ -138,6 +146,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
 
     if(!params_kernel.valid())
         throw std::runtime_error("invalid params");
+    params_kernel.create_plan();
 
     std::vector<float> samples_jit;
     std::vector<float> samples_kernel;
@@ -166,7 +175,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
     start.alloc();
     stop.alloc();
 
-    const size_t       NTRIALS = 5;
+    const size_t       NTRIALS = 10;
     std::random_device randdev;
     while(samples_kernel.size() < NTRIALS && samples_jit.size() < NTRIALS)
     {
