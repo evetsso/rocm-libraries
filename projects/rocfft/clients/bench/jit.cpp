@@ -1,3 +1,4 @@
+#include "../../shared/arithmetic.h"
 #include "../../shared/hip_object_wrapper.h"
 #include "../../shared/rocfft_params.h"
 
@@ -16,18 +17,63 @@ __device__ void store_callback(float2* output, size_t offset, float2 element, vo
 }
 )_CALLBACK_SRC_"};
 
-__global__ void load_callback_kernel() {}
+__device__ size_t compute_offset(size_t dim, const size_t* lengths)
+{
+    size_t       offset = 0;
+    size_t       stride = 1;
+    unsigned int idx    = threadIdx.x;
+    for(size_t i = 0; i <= dim; ++i)
+    {
+        offset += idx % lengths[i] * stride;
+        idx = idx / lengths[i];
+        stride *= lengths[i];
+    }
+    return offset;
+}
 
-__global__ void store_callback_kernel() {}
+__global__ void
+    load_callback_kernel(float2* __restrict__ input, size_t dim, const size_t* __restrict__ lengths)
+{
+    auto offset = compute_offset(dim, lengths);
+    auto elem   = input[offset];
+    elem.x *= 2;
+    elem.y *= 2;
+    input[offset] = elem;
+}
 
-void run_trial(rocfft_params&      params_kernel,
-               std::vector<float>& samples_kernel,
-               rocfft_params&      params_jit,
-               std::vector<float>& samples_jit,
-               hipEvent_wrapper_t& start,
-               hipEvent_wrapper_t& stop,
-               gpubuf&             data_orig,
-               bool                run_jit)
+__global__ void
+    store_callback_kernel(float2* output, size_t dim, const size_t* __restrict__ lengths)
+{
+    auto offset = compute_offset(dim, lengths);
+    auto elem   = output[offset];
+    elem.x /= 2;
+    elem.y /= 2;
+    output[offset] = elem;
+}
+
+template <typename Tkernel>
+void apply_callback(Tkernel                 kernel,
+                    float2*                 ptr,
+                    const gpubuf_t<size_t>& lengths_device,
+                    rocfft_params&          params)
+{
+    dim3 gridDim{static_cast<unsigned int>(product(params.length.begin(), params.length.end())),
+                 1U,
+                 static_cast<unsigned int>(params.nbatch)};
+    dim3 blockDim{1U, 1U, 1U};
+
+    kernel<<<gridDim, blockDim>>>(ptr, params.length.size(), lengths_device.data());
+}
+
+void run_trial(rocfft_params&          params_kernel,
+               std::vector<float>&     samples_kernel,
+               rocfft_params&          params_jit,
+               std::vector<float>&     samples_jit,
+               hipEvent_wrapper_t&     start,
+               hipEvent_wrapper_t&     stop,
+               const gpubuf&           data_orig,
+               const gpubuf_t<size_t>& lengths_device,
+               bool                    run_jit)
 {
     auto& params  = run_jit ? params_jit : params_kernel;
     auto& samples = run_jit ? samples_jit : samples_kernel;
@@ -48,6 +94,8 @@ void run_trial(rocfft_params&      params_kernel,
     if(!run_jit)
     {
         // launch kernel to apply load callback
+        apply_callback(
+            load_callback_kernel, static_cast<float2*>(data.data()), lengths_device, params);
     }
 
     params.execute(ptrs.data(), ptrs.data());
@@ -55,6 +103,8 @@ void run_trial(rocfft_params&      params_kernel,
     if(!run_jit)
     {
         // launch kernel to apply store callback
+        apply_callback(
+            store_callback_kernel, static_cast<float2*>(data.data()), lengths_device, params);
     }
 
     if(hipEventRecord(stop) != hipSuccess)
@@ -93,6 +143,18 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
     std::vector<float> samples_kernel;
 
     std::vector<gpubuf> data(1);
+    gpubuf_t<size_t>    lengths_device;
+    if(lengths_device.alloc(sizeof(size_t) * (length.size() + 1)) != hipSuccess)
+        throw std::runtime_error("failed to alloc lengths");
+    if(hipMemcpy(lengths_device.data(),
+                 length.data(),
+                 sizeof(size_t) * length.size(),
+                 hipMemcpyHostToDevice)
+           != hipSuccess
+       || hipMemcpy(
+              lengths_device.data() + length.size(), &batch, sizeof(size_t), hipMemcpyHostToDevice)
+              != hipSuccess)
+        throw std::runtime_error("failed to memcpy lengths");
 
     if(data[0].alloc(params_jit.isize.front() * sizeof(float) * 2) != hipSuccess)
         throw std::runtime_error("failed to alloc");
@@ -104,7 +166,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
     start.alloc();
     stop.alloc();
 
-    const size_t       NTRIALS = 20;
+    const size_t       NTRIALS = 5;
     std::random_device randdev;
     while(samples_kernel.size() < NTRIALS && samples_jit.size() < NTRIALS)
     {
@@ -117,6 +179,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
                   start,
                   stop,
                   data.front(),
+                  lengths_device,
                   run_jit);
     }
 
