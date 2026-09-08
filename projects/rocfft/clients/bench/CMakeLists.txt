@@ -66,6 +66,7 @@ endif()
 
 include( ROCMInstallTargets )
 
+find_package( hiprtc REQUIRED CONFIG PATHS ${ROCM_PATH} )
 set( bench_list rocfft-bench dyna-rocfft-bench jit )
 foreach( bench ${bench_list})
   if(${bench} STREQUAL "rocfft-bench")
@@ -173,6 +174,11 @@ foreach( bench ${bench_list})
 
   rocm_install(TARGETS ${bench} COMPONENT benchmarks)
 endforeach()
+
+target_link_libraries( jit
+  PRIVATE
+  hiprtc::hiprtc
+  )
 
 # Link dyna-rocfft-bench to the experimental filesystem library if
 # it's not available in the standard library.

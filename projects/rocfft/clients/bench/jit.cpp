@@ -7,13 +7,18 @@ const char* callback_src{
 extern "C"
 __device__ float2 load_callback(float2* input, size_t offset, void* cbdata, void* sharedMem)
 {
-  return input[offset];
+    auto elem   = input[offset];
+    elem.x *= 2;
+    elem.y *= 2;
+    return elem;
 }
 
 extern "C"
-__device__ void store_callback(float2* output, size_t offset, float2 element, void* cbdata, void* sharedMem)
+__device__ void store_callback(float2* output, size_t offset, float2 elem, void* cbdata, void* sharedMem)
 {
-  output[offset] = element;
+    elem.x /= 2;
+    elem.y /= 2;
+    output[offset] = elem;
 }
 )_CALLBACK_SRC_"};
 
@@ -126,12 +131,96 @@ void run_trial(rocfft_params&          params_kernel,
     samples.push_back(elapsed);
 }
 
+std::vector<char> compile_jit_callback(const std::string& src)
+{
+    struct RaiiState
+    {
+        hiprtcProgram prog = nullptr;
+        ~RaiiState()
+        {
+            if(prog)
+            {
+                hiprtcDestroyProgram(&prog);
+            }
+        }
+    };
+    RaiiState state;
+
+    auto err
+        = hiprtcCreateProgram(&state.prog, src.c_str(), "rocfft_callback.hip", 0, nullptr, nullptr);
+    if(err != HIPRTC_SUCCESS)
+    {
+        throw hiprtc_runtime_error{"unable to create program", err};
+    }
+
+    std::vector<const char*> options;
+#ifdef __HIP_PLATFORM_AMD__
+    options.push_back("-O3");
+    options.push_back("--offload-arch=amdgcnspirv");
+#else
+#ifdef HIPFFT_CUDA_INCLUDE
+    options.push_back("-I" HIPFFT_CUDA_INCLUDE);
+#endif
+    options.push_back("-dlto");
+    options.push_back("--relocatable-device-code=true");
+#endif
+
+    err = hiprtcCompileProgram(state.prog, options.size(), options.data());
+    if(err != HIPRTC_SUCCESS)
+    {
+        size_t logSize = 0;
+        hiprtcGetProgramLogSize(state.prog, &logSize);
+
+        if(logSize)
+        {
+            std::vector<char> log(logSize, '\0');
+            if(hiprtcGetProgramLog(state.prog, log.data()) == HIPRTC_SUCCESS)
+                throw hiprtc_runtime_error{std::string(log.begin(), log.end()), err};
+        }
+        throw hiprtc_runtime_error{"compile failed without log", err};
+    }
+
+    size_t            codeSize;
+    std::vector<char> code;
+#ifdef __HIP_PLATFORM_AMD__
+    err = hiprtcGetBitcodeSize(state.prog, &codeSize);
+    if(err != HIPRTC_SUCCESS)
+        throw hiprtc_runtime_error{"failed to get bitcode size", err};
+
+    code.resize(codeSize);
+    err = hiprtcGetBitcode(state.prog, code.data());
+    if(err != HIPRTC_SUCCESS)
+        throw hiprtc_runtime_error{"failed to get bitcode", err};
+#else
+    auto nverr = nvrtcGetLTOIRSize(state.prog, &codeSize);
+    if(nverr != NVRTC_SUCCESS)
+        throw hiprtc_runtime_error{"failed to get bitcode size", nvrtcResultTohiprtcResult(nverr)};
+
+    code.resize(codeSize);
+    nverr = nvrtcGetLTOIR(state.prog, code.data());
+    if(nverr != NVRTC_SUCCESS)
+        throw hiprtc_runtime_error{"failed to get bitcode", nvrtcResultTohiprtcResult(nverr)};
+#endif
+    return code;
+}
+
+void jitify(rocfft_params& params_jit)
+{
+    auto callback_bitcode                 = compile_jit_callback(callback_src);
+    params_jit.load_jit_cb_state          = std::make_shared<fft_params::jit_cb_state_t>();
+    params_jit.load_jit_cb_state->symbol  = "load_callback";
+    params_jit.load_jit_cb_state->func    = callback_bitcode;
+    params_jit.store_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
+    params_jit.store_jit_cb_state->symbol = "store_callback";
+    params_jit.store_jit_cb_state->func   = callback_bitcode;
+}
+
 void run_testcase(const std::vector<size_t>& length, size_t batch)
 {
     rocfft_params params_jit;
     params_jit.length = length;
     params_jit.nbatch = batch;
-
+    jitify(params_jit);
     params_jit.validate();
 
     if(!params_jit.valid())
