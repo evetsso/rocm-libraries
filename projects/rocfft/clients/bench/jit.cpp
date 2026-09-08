@@ -294,11 +294,20 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
                    / 2;
         }
     };
-    printf("median kernel: %f (%zu samples)\nmedian jit: %f (%zu samples)\n",
-           get_median(samples_kernel),
+
+    printf("length ");
+    for(auto len : length)
+        printf("%zu ", len);
+    printf("batch %zu\n", batch);
+
+    auto median_kernel = get_median(samples_kernel);
+    auto median_jit    = get_median(samples_jit);
+    printf("  median kernel: %f (%zu samples)\n  median jit: %f (%zu samples)\n  speedup: %.2f\n",
+           median_kernel,
            samples_kernel.size(),
-           get_median(samples_jit),
-           samples_jit.size());
+           median_jit,
+           samples_jit.size(),
+           median_kernel / median_jit);
 }
 
 int main()
@@ -307,6 +316,7 @@ int main()
     params.setup();
 
     run_testcase({256, 256, 256}, 10);
+    run_testcase({16384}, 10);
 
     params.cleanup();
 }
