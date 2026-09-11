@@ -1,134 +1,106 @@
 #include "../../shared/arithmetic.h"
+#include "../../shared/gpubuf.h"
 #include "../../shared/hip_object_wrapper.h"
+#include "../../shared/rocfft_complex.h"
 #include "../../shared/rocfft_params.h"
+#include <fstream>
+#include <string>
 
-const char* callback_src{
-    R"_CALLBACK_SRC_(
-extern "C"
-__device__ float2 load_callback(float2* input, size_t offset, void* cbdata, void* sharedMem)
-{
-    auto elem   = input[offset];
-    elem.x *= 2;
-    elem.y *= 2;
-    return elem;
-}
+typedef rocfft_complex<float> Tdata;
 
-extern "C"
-__device__ void store_callback(float2* output, size_t offset, float2 elem, void* cbdata, void* sharedMem)
+std::string read_file(const char* filename)
 {
-    elem.x /= 2;
-    elem.y /= 2;
-    output[offset] = elem;
-}
-)_CALLBACK_SRC_"};
+    std::string   src;
+    std::ifstream infile(filename);
 
-__device__ size_t compute_offset(size_t dim, const size_t* lengths)
-{
-    size_t       offset = 0;
-    size_t       stride = 1;
-    unsigned int idx    = blockIdx.x * 32 + threadIdx.x;
-    for(size_t i = 0; i < dim; ++i)
+    std::string line;
+    while(std::getline(infile, line))
     {
-        offset += idx % lengths[i] * stride;
-        idx = idx / lengths[i];
-        stride *= lengths[i];
+        if(line.starts_with("#include"))
+            continue;
+        src += line;
+        src += "\n";
     }
-    offset += blockIdx.z * stride;
-    return offset;
+    return src;
+}
+
+std::string fwd_load_callback_src(size_t length, size_t lengthPadded)
+{
+    std::string lengthStr       = std::to_string(length);
+    std::string lengthPaddedStr = std::to_string(lengthPadded);
+    std::string src             = read_file("../shared/rocfft_complex.h");
+    src += "typedef rocfft_complex<float> Tdata;\n";
+    src += "extern \"C\"\n";
+    src += "__device__ Tdata fwd_load_callback(Tdata* input, size_t offset, void* cbdata, void* "
+           "sharedMem)\n";
+    src += "{\n";
+    src += "  auto batch = offset / " + lengthPaddedStr + ";\n";
+    src += "  auto idx = offset % " + lengthPaddedStr + ";\n";
+    src += "  if(idx < " + lengthStr + ")\n";
+    src += "    return input[batch * " + lengthStr + " + idx];\n";
+    src += "  else\n";
+    src += "    return Tdata{0.0,0.0};\n";
+    src += "}\n";
+    return src;
+}
+
+std::string back_load_callback_src(size_t length, size_t lengthPadded)
+{
+    std::string lengthStr       = std::to_string(length);
+    std::string lengthPaddedStr = std::to_string(lengthPadded);
+    std::string src             = read_file("../shared/rocfft_complex.h");
+    src += "typedef rocfft_complex<float> Tdata;\n";
+    src += "extern \"C\"\n";
+    src += "__device__ Tdata back_load_callback(Tdata* input, size_t offset, void* cbdata, void* "
+           "sharedMem)\n";
+    src += "{\n";
+    src += "  auto idx = offset % " + lengthPaddedStr + ";\n";
+    src += "  auto G = static_cast<Tdata*>(cbdata);\n";
+    src += "  return input[offset] * G[idx];\n";
+    src += "}\n";
+    return src;
+}
+
+std::string back_store_callback_src(size_t length, size_t lengthPadded)
+{
+    std::string lengthStr       = std::to_string(length);
+    std::string lengthPaddedStr = std::to_string(lengthPadded);
+    std::string src             = read_file("../shared/rocfft_complex.h");
+    src += "typedef rocfft_complex<float> Tdata;\n";
+    src += "extern \"C\"\n";
+    src += "__device__ void back_store_callback(Tdata* output, size_t offset, Tdata elem, void* "
+           "cbdata, void* "
+           "sharedMem)\n";
+    src += "{\n";
+    src += "  auto batch = offset / " + lengthPaddedStr + ";\n";
+    src += "  auto idx = offset % " + lengthPaddedStr + ";\n";
+    src += "  if(idx < " + lengthStr + ")\n";
+    src += "    output[batch * " + lengthStr + " + idx] = elem;\n";
+    src += "}\n";
+    return src;
+}
+
+__global__ void pad_kernel(Tdata* __restrict__ F,
+                           Tdata* __restrict__ padded_F,
+                           size_t length,
+                           size_t lengthPadded)
+{
+    auto offset_padded_F = blockIdx.x * 32 + threadIdx.x;
+    auto batch           = offset_padded_F / lengthPadded;
+    auto F_idx           = offset_padded_F % lengthPadded;
+
+    if(F_idx < length)
+        padded_F[offset_padded_F] = F[batch * length + F_idx];
+    else
+        padded_F[offset_padded_F] = Tdata{0.0, 0.0};
 }
 
 __global__ void
-    load_callback_kernel(float2* __restrict__ input, size_t dim, const size_t* __restrict__ lengths)
+    hadamard_product_kernel(Tdata* __restrict__ F, Tdata* __restrict__ G, size_t lengthPadded)
 {
-    auto offset = compute_offset(dim, lengths);
-    auto elem   = input[offset];
-    elem.x *= 2;
-    elem.y *= 2;
-    input[offset] = elem;
-}
-
-__global__ void
-    store_callback_kernel(float2* output, size_t dim, const size_t* __restrict__ lengths)
-{
-    auto offset = compute_offset(dim, lengths);
-    auto elem   = output[offset];
-    elem.x /= 2;
-    elem.y /= 2;
-    output[offset] = elem;
-}
-
-template <typename Tkernel>
-void apply_callback(Tkernel                 kernel,
-                    float2*                 ptr,
-                    const gpubuf_t<size_t>& lengths_device,
-                    rocfft_params&          params)
-{
-    if(params.length.front() % 32)
-        throw std::runtime_error("X dim needs to be divisible by 32");
-
-    dim3 gridDim{
-        static_cast<unsigned int>(params.length.front() / 32
-                                  * product(params.length.begin() + 1, params.length.end())),
-        1U,
-        static_cast<unsigned int>(params.nbatch)};
-    dim3 blockDim{32U, 1U, 1U};
-
-    kernel<<<gridDim, blockDim>>>(ptr, params.length.size(), lengths_device.data());
-}
-
-void run_trial(rocfft_params&          params_kernel,
-               std::vector<float>&     samples_kernel,
-               rocfft_params&          params_jit,
-               std::vector<float>&     samples_jit,
-               hipEvent_wrapper_t&     start,
-               hipEvent_wrapper_t&     stop,
-               const gpubuf&           data_orig,
-               const gpubuf_t<size_t>& lengths_device,
-               bool                    run_jit)
-{
-    auto& params  = run_jit ? params_jit : params_kernel;
-    auto& samples = run_jit ? samples_jit : samples_kernel;
-
-    gpubuf data;
-    if(data.alloc(data_orig.size()) != hipSuccess)
-        throw std::runtime_error("failed to alloc per-trial data");
-    if(hipMemcpy(data.data(), data_orig.data(), data_orig.size(), hipMemcpyDeviceToDevice)
-       != hipSuccess)
-        throw std::runtime_error("failed to memcpy input");
-
-    std::vector<void*> ptrs(1);
-    ptrs[0] = data.data();
-
-    if(hipEventRecord(start) != hipSuccess)
-        throw std::runtime_error("failed to record start");
-
-    if(!run_jit)
-    {
-        // launch kernel to apply load callback
-        apply_callback(
-            load_callback_kernel, static_cast<float2*>(data.data()), lengths_device, params);
-    }
-
-    if(params.execute(ptrs.data(), ptrs.data()) != fft_status_success)
-        throw std::runtime_error("execute failed");
-
-    if(!run_jit)
-    {
-        // launch kernel to apply store callback
-        apply_callback(
-            store_callback_kernel, static_cast<float2*>(data.data()), lengths_device, params);
-    }
-
-    if(hipEventRecord(stop) != hipSuccess)
-        throw std::runtime_error("failed to record start");
-
-    if(hipEventSynchronize(stop) != hipSuccess)
-        throw std::runtime_error("failed to sync");
-    float elapsed = 0.0;
-    if(hipEventElapsedTime(&elapsed, start, stop) != hipSuccess)
-        throw std::runtime_error("hipEventElapsedTime failed");
-
-    samples.push_back(elapsed);
+    auto offset_F = blockIdx.x * 32 + threadIdx.x;
+    auto offset_G = offset_F % lengthPadded;
+    F[offset_F]   = F[offset_F] * G[offset_G];
 }
 
 std::vector<char> compile_jit_callback(const std::string& src)
@@ -204,61 +176,234 @@ std::vector<char> compile_jit_callback(const std::string& src)
     return code;
 }
 
-void jitify(rocfft_params& params_jit)
+struct convolution
 {
-    auto callback_bitcode                 = compile_jit_callback(callback_src);
-    params_jit.load_jit_cb_state          = std::make_shared<fft_params::jit_cb_state_t>();
-    params_jit.load_jit_cb_state->symbol  = "load_callback";
-    params_jit.load_jit_cb_state->func    = callback_bitcode;
-    params_jit.store_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
-    params_jit.store_jit_cb_state->symbol = "store_callback";
-    params_jit.store_jit_cb_state->func   = callback_bitcode;
-    params_jit.run_callbacks              = fft_callback_type_jit;
+    convolution(gpubuf_t<Tdata>& F, gpubuf_t<Tdata>& G, size_t batch)
+        : F(F)
+        , G(G)
+        , length(F.size() / sizeof(Tdata) / batch)
+        , lengthPadded(1 << CeilPo2(length + length - 1))
+        , batch(batch)
+    {
+        // For the sake of this example, ensure that a single batch of
+        // F and G are the same size
+        if(F.size() / batch != G.size())
+            throw std::runtime_error("F size doesn't match G size");
+
+        params_fwd_F.length        = {lengthPadded};
+        params_fwd_F.nbatch        = batch;
+        params_fwd_G.length        = {lengthPadded};
+        params_fwd_G.nbatch        = 1;
+        params_back.transform_type = fft_transform_type_complex_inverse;
+        params_back.length         = {lengthPadded};
+        params_back.nbatch         = batch;
+
+        params_back.scale_factor = 1.0 / lengthPadded;
+
+        params_fwd_F.validate();
+        params_fwd_G.validate();
+        params_back.validate();
+        if(!params_fwd_F.valid() || !params_fwd_G.valid() || !params_back.valid())
+            throw std::runtime_error("invalid params");
+
+        if(padded_F.alloc(lengthPadded * sizeof(Tdata) * batch) != hipSuccess
+           || padded_G.alloc(lengthPadded * sizeof(Tdata)) != hipSuccess)
+            throw std::runtime_error("failed to alloc padded");
+    }
+
+    virtual void execute() = 0;
+
+    gpubuf_t<Tdata>& F;
+    gpubuf_t<Tdata>& G;
+
+    gpubuf_t<Tdata> padded_F;
+    gpubuf_t<Tdata> padded_G;
+
+    rocfft_params params_fwd_F;
+    rocfft_params params_fwd_G;
+    rocfft_params params_back;
+
+    size_t length;
+    size_t lengthPadded;
+    size_t batch;
+};
+
+struct convolution_kernel : public convolution
+{
+    convolution_kernel(gpubuf_t<Tdata>& F, gpubuf_t<Tdata>& G, size_t batch)
+        : convolution(F, G, batch)
+    {
+        params_fwd_F.setup_structs();
+        params_fwd_G.setup_structs();
+        params_back.setup_structs();
+    }
+
+    void execute() override
+    {
+        // pad F and G
+
+        // {
+        //     dim3 blockDim{32, 1, 1};
+        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
+        //     pad_kernel<<<gridDim, blockDim>>>(F.data(), padded_F.data(), length, lengthPadded);
+        // }
+        // {
+        //     dim3 blockDim{32, 1, 1};
+        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
+        //     pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
+        // }
+        if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
+           || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
+            throw std::runtime_error("failed to memset");
+
+        if(hipMemcpy(padded_F.data(), F.data(), F.size(), hipMemcpyDeviceToDevice) != hipSuccess
+           || hipMemcpy(padded_G.data(), G.data(), G.size(), hipMemcpyDeviceToDevice) != hipSuccess)
+            throw std::runtime_error("failed to memcpy");
+
+        // padded forward transforms
+        std::vector<void*> ptrs(1);
+        ptrs[0] = padded_F.data();
+        params_fwd_F.execute(ptrs.data(), ptrs.data());
+        ptrs[0] = padded_G.data();
+        params_fwd_G.execute(ptrs.data(), ptrs.data());
+
+        // hadamard product
+        {
+            dim3 blockDim{32, 1, 1};
+            dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
+            hadamard_product_kernel<<<gridDim, blockDim>>>(
+                padded_F.data(), padded_G.data(), lengthPadded);
+        }
+
+        // inverse transform
+        ptrs[0] = padded_F.data();
+        params_back.execute(ptrs.data(), ptrs.data());
+    }
+};
+
+struct convolution_jit : public convolution
+{
+    convolution_jit(gpubuf_t<Tdata>& F, gpubuf_t<Tdata>& G, size_t batch)
+        : convolution(F, G, batch)
+    {
+        auto fwd_load_callback = compile_jit_callback(fwd_load_callback_src(length, lengthPadded));
+        auto back_load_callback
+            = compile_jit_callback(back_load_callback_src(length, lengthPadded));
+        auto back_store_callback
+            = compile_jit_callback(back_store_callback_src(length, lengthPadded));
+
+        // add load callback to forward plans to remove the need for
+        // padding the input, though the transforms now need to be
+        // out-of-place to materialize the padded results in memory
+        params_fwd_F.load_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
+        params_fwd_F.load_jit_cb_state->symbol = "fwd_load_callback";
+        params_fwd_F.load_jit_cb_state->func   = fwd_load_callback;
+        params_fwd_F.placement                 = fft_placement_notinplace;
+        params_fwd_F.run_callbacks             = fft_callback_type_jit;
+        params_fwd_F.setup_structs();
+        params_fwd_G.load_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
+        params_fwd_G.load_jit_cb_state->symbol = "fwd_load_callback";
+        params_fwd_G.load_jit_cb_state->func   = fwd_load_callback;
+        params_fwd_G.placement                 = fft_placement_notinplace;
+        params_fwd_G.run_callbacks             = fft_callback_type_jit;
+        params_fwd_G.setup_structs();
+
+        // add load callback to backward plan to compute hadamard
+        // product without needing to materialize it in memory
+        params_back.load_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
+        params_back.load_jit_cb_state->symbol = "back_load_callback";
+        params_back.load_jit_cb_state->func   = back_load_callback;
+        // pass G pointer to the callback so it can do the computation
+        params_back.load_jit_cb_state->data.resize(1);
+        params_back.load_jit_cb_state->data[0]
+            = gpubuf::make_nonowned(padded_G.data(), padded_G.size());
+        // store callback allows us to only bother writing 'length'
+        // elements since the padded results beyond that are garbage anyway
+        params_back.store_jit_cb_state         = std::make_shared<fft_params::jit_cb_state_t>();
+        params_back.store_jit_cb_state->symbol = "back_store_callback";
+        params_back.store_jit_cb_state->func   = back_store_callback;
+        params_back.run_callbacks              = fft_callback_type_jit;
+
+        params_back.setup_structs();
+    }
+    void execute() override
+    {
+        std::vector<void*> ptrs_in(1);
+        std::vector<void*> ptrs_out(1);
+        ptrs_in[0]  = F.data();
+        ptrs_out[0] = padded_F.data();
+        params_fwd_F.execute(ptrs_in.data(), ptrs_out.data());
+        ptrs_in[0]  = G.data();
+        ptrs_out[0] = padded_G.data();
+        params_fwd_G.execute(ptrs_in.data(), ptrs_out.data());
+
+        // inverse transform
+        std::vector<void*> ptrs(1);
+        ptrs[0] = padded_F.data();
+        params_back.execute(ptrs.data(), ptrs.data());
+    }
+};
+
+void run_trial(convolution_jit&    conv_jit,
+               std::vector<float>& samples_jit,
+
+               convolution_kernel& conv_kernel,
+               std::vector<float>& samples_kernel,
+               hipEvent_wrapper_t& start,
+               hipEvent_wrapper_t& stop,
+               bool                run_jit)
+{
+    auto& conv
+        = run_jit ? static_cast<convolution&>(conv_jit) : static_cast<convolution&>(conv_kernel);
+    auto& samples = run_jit ? samples_jit : samples_kernel;
+
+    if(hipEventRecord(start) != hipSuccess)
+        throw std::runtime_error("failed to record start");
+
+    conv.execute();
+
+    if(hipEventRecord(stop) != hipSuccess)
+        throw std::runtime_error("failed to record start");
+
+    if(hipEventSynchronize(stop) != hipSuccess)
+        throw std::runtime_error("failed to sync");
+    float elapsed = 0.0;
+    if(hipEventElapsedTime(&elapsed, start, stop) != hipSuccess)
+        throw std::runtime_error("hipEventElapsedTime failed");
+
+    samples.push_back(elapsed);
 }
 
-void run_testcase(const std::vector<size_t>& length, size_t batch)
+void run_testcase(size_t length, size_t batch)
 {
-    rocfft_params params_jit;
-    params_jit.length = length;
-    params_jit.nbatch = batch;
-    jitify(params_jit);
-    params_jit.validate();
+    gpubuf_t<Tdata> F, G;
+    if(F.alloc(length * sizeof(Tdata) * batch) != hipSuccess
+       || G.alloc(length * sizeof(Tdata)) != hipSuccess)
+        throw std::runtime_error("alloc failed");
 
-    if(!params_jit.valid())
+    rocfft_params params_F, params_G;
+    params_F.length = {length};
+    params_F.nbatch = batch;
+    params_G.length = {length};
+    params_G.nbatch = 1;
+    params_F.validate();
+    params_G.validate();
+    if(!params_F.valid() || !params_G.valid())
         throw std::runtime_error("invalid params");
-    params_jit.create_plan();
 
-    rocfft_params params_kernel;
-    params_kernel.length = length;
-    params_kernel.nbatch = batch;
+    std::vector<gpubuf> input_F(1);
+    input_F.front() = gpubuf::make_nonowned(F.data(), F.size());
+    std::vector<gpubuf> input_G(1);
+    input_G.front() = gpubuf::make_nonowned(G.data(), G.size());
 
-    params_kernel.validate();
+    params_F.compute_input(input_F);
+    params_G.compute_input(input_G);
 
-    if(!params_kernel.valid())
-        throw std::runtime_error("invalid params");
-    params_kernel.create_plan();
+    convolution_jit    conv_jit{F, G, batch};
+    convolution_kernel conv_kernel{F, G, batch};
 
     std::vector<float> samples_jit;
     std::vector<float> samples_kernel;
-
-    std::vector<gpubuf> data(1);
-    gpubuf_t<size_t>    lengths_device;
-    if(lengths_device.alloc(sizeof(size_t) * (length.size() + 1)) != hipSuccess)
-        throw std::runtime_error("failed to alloc lengths");
-    if(hipMemcpy(lengths_device.data(),
-                 length.data(),
-                 sizeof(size_t) * length.size(),
-                 hipMemcpyHostToDevice)
-           != hipSuccess
-       || hipMemcpy(
-              lengths_device.data() + length.size(), &batch, sizeof(size_t), hipMemcpyHostToDevice)
-              != hipSuccess)
-        throw std::runtime_error("failed to memcpy lengths");
-
-    if(data[0].alloc(params_jit.isize.front() * sizeof(float) * 2) != hipSuccess)
-        throw std::runtime_error("failed to alloc");
-
-    params_jit.compute_input(data);
 
     hipEvent_wrapper_t start;
     hipEvent_wrapper_t stop;
@@ -271,15 +416,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
     {
         bool run_jit = randdev() % 2;
 
-        run_trial(params_kernel,
-                  samples_kernel,
-                  params_jit,
-                  samples_jit,
-                  start,
-                  stop,
-                  data.front(),
-                  lengths_device,
-                  run_jit);
+        run_trial(conv_jit, samples_jit, conv_kernel, samples_kernel, start, stop, run_jit);
     }
 
     // compute medians
@@ -296,10 +433,7 @@ void run_testcase(const std::vector<size_t>& length, size_t batch)
         }
     };
 
-    printf("length ");
-    for(auto len : length)
-        printf("%zu ", len);
-    printf("batch %zu\n", batch);
+    printf("length %zu batch %zu\n ", length, batch);
 
     auto median_kernel = get_median(samples_kernel);
     auto median_jit    = get_median(samples_jit);
@@ -316,8 +450,7 @@ int main()
     rocfft_params params;
     params.setup();
 
-    run_testcase({256, 256, 256}, 10);
-    run_testcase({16384}, 10);
+    run_testcase(32768, 100);
 
     params.cleanup();
 }
