@@ -242,6 +242,7 @@ struct convolution_kernel : public convolution
     {
         // pad F and G
 
+        // launch kernels to do the padding
         // {
         //     dim3 blockDim{32, 1, 1};
         //     dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
@@ -252,6 +253,10 @@ struct convolution_kernel : public convolution
         //     dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
         //     pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
         // }
+
+        // or,
+
+        // use hipmemset + hipmemcpy to do the padding
         if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
            || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
             throw std::runtime_error("failed to memset");
@@ -450,7 +455,22 @@ int main()
     rocfft_params params;
     params.setup();
 
+    run_testcase(16384, 1);
+    run_testcase(16384, 10);
+    run_testcase(16384, 50);
+    run_testcase(16384, 100);
+    run_testcase(32768, 1);
+    run_testcase(32768, 10);
+    run_testcase(32768, 50);
     run_testcase(32768, 100);
+    run_testcase(40000, 1);
+    run_testcase(40000, 10);
+    run_testcase(40000, 50);
+    run_testcase(40000, 100);
+    run_testcase(65536, 1);
+    run_testcase(65536, 10);
+    run_testcase(65536, 50);
+    run_testcase(65536, 100);
 
     params.cleanup();
 }
