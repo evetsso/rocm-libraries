@@ -243,27 +243,27 @@ struct convolution_kernel : public convolution
         // pad F and G
 
         // launch kernels to do the padding
-        // {
-        //     dim3 blockDim{32, 1, 1};
-        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
-        //     pad_kernel<<<gridDim, blockDim>>>(F.data(), padded_F.data(), length, lengthPadded);
-        // }
-        // {
-        //     dim3 blockDim{32, 1, 1};
-        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
-        //     pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
-        // }
+        {
+            dim3 blockDim{32, 1, 1};
+            dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
+            pad_kernel<<<gridDim, blockDim>>>(F.data(), padded_F.data(), length, lengthPadded);
+        }
+        {
+            dim3 blockDim{32, 1, 1};
+            dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
+            pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
+        }
 
         // or,
 
         // use hipmemset + hipmemcpy to do the padding
-        if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
-           || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
-            throw std::runtime_error("failed to memset");
+        // if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
+        //    || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
+        //     throw std::runtime_error("failed to memset");
 
-        if(hipMemcpy(padded_F.data(), F.data(), F.size(), hipMemcpyDeviceToDevice) != hipSuccess
-           || hipMemcpy(padded_G.data(), G.data(), G.size(), hipMemcpyDeviceToDevice) != hipSuccess)
-            throw std::runtime_error("failed to memcpy");
+        // if(hipMemcpy(padded_F.data(), F.data(), F.size(), hipMemcpyDeviceToDevice) != hipSuccess
+        //    || hipMemcpy(padded_G.data(), G.data(), G.size(), hipMemcpyDeviceToDevice) != hipSuccess)
+        //     throw std::runtime_error("failed to memcpy");
 
         // padded forward transforms
         std::vector<void*> ptrs(1);
@@ -415,7 +415,7 @@ void run_testcase(size_t length, size_t batch)
     start.alloc();
     stop.alloc();
 
-    const size_t       NTRIALS = 10;
+    const size_t       NTRIALS = 20;
     std::random_device randdev;
     while(samples_kernel.size() < NTRIALS || samples_jit.size() < NTRIALS)
     {
@@ -438,16 +438,15 @@ void run_testcase(size_t length, size_t batch)
         }
     };
 
-    printf("length %zu batch %zu\n ", length, batch);
-
     auto median_kernel = get_median(samples_kernel);
     auto median_jit    = get_median(samples_jit);
-    printf("  median kernel: %f (%zu samples)\n  median jit: %f (%zu samples)\n  speedup: %.2f\n",
-           median_kernel,
-           samples_kernel.size(),
-           median_jit,
-           samples_jit.size(),
-           median_kernel / median_jit);
+    printf("%zu,%zu,%f,%f\n", length, batch, median_kernel, median_jit);
+    // printf("  median kernel: %f (%zu samples)\n  median jit: %f (%zu samples)\n  speedup: %.2f\n",
+    //        median_kernel,
+    //        samples_kernel.size(),
+    //        median_jit,
+    //        samples_jit.size(),
+    //        median_kernel / median_jit);
 }
 
 int main()
@@ -455,22 +454,30 @@ int main()
     rocfft_params params;
     params.setup();
 
-    run_testcase(16384, 1);
-    run_testcase(16384, 10);
-    run_testcase(16384, 50);
-    run_testcase(16384, 100);
-    run_testcase(32768, 1);
-    run_testcase(32768, 10);
-    run_testcase(32768, 50);
-    run_testcase(32768, 100);
-    run_testcase(40000, 1);
-    run_testcase(40000, 10);
-    run_testcase(40000, 50);
-    run_testcase(40000, 100);
-    run_testcase(65536, 1);
-    run_testcase(65536, 10);
-    run_testcase(65536, 50);
-    run_testcase(65536, 100);
+    // run_testcase(16384, 1);
+    // run_testcase(16384, 10);
+    // run_testcase(16384, 50);
+    // run_testcase(16384, 100);
+    // run_testcase(32768, 1);
+    // run_testcase(32768, 10);
+    // run_testcase(32768, 50);
+    // run_testcase(32768, 100);
+    // run_testcase(40000, 1);
+    // run_testcase(40000, 10);
+    // run_testcase(40000, 50);
+    // run_testcase(40000, 100);
+    run_testcase(65536 * 4, 1);
+    run_testcase(65536 * 4, 10);
+    run_testcase(65536 * 4, 50);
+    run_testcase(65536 * 4, 100);
+    run_testcase(65536 * 8, 1);
+    run_testcase(65536 * 8, 10);
+    run_testcase(65536 * 8, 50);
+    run_testcase(65536 * 8, 100);
+    run_testcase(65536 * 16, 1);
+    run_testcase(65536 * 16, 10);
+    run_testcase(65536 * 16, 50);
+    run_testcase(65536 * 16, 100);
 
     params.cleanup();
 }
