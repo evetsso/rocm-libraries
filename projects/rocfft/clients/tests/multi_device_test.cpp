@@ -107,8 +107,7 @@ std::vector<fft_params> param_generator_multi_gpu(const SplitType type)
         false,
         // function pointer callbacks need -fgpu-rdc, but that causes build
         // nondeterminism in kpack.
-        // JIT callbacks are not yet supported on multi-GPU transforms
-        {fft_callback_type_none, /*fft_callback_type_funcptr, fft_callback_type_jit*/});
+        {fft_callback_type_none, fft_callback_type_jit /*, fft_callback_type_funcptr*/});
 
     std::vector<fft_params> all_params;
 
