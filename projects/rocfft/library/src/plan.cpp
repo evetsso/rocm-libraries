@@ -2176,25 +2176,39 @@ void rocfft_plan_t::MakeSingleDevPlanWithGatherScatterIfNeeded()
                                "single-device plan configuration.");
     }
 
+    // Create gathering/scattering items up front if they're necessary
     std::vector<size_t> gather_items;
+    std::vector<size_t> scatter_items;
     if(!plan_is_single_dev)
         gather_items = CreateInputGatheringItemsIfNeeded(exec_plan_metadata, exec_plan_location);
 
-    // Single-device plans apply load/store ops directly, but for
-    // multi-device plans the gathering/scattering items are
-    // responsible for applying them.
+    if(!plan_is_single_dev)
+        scatter_items = CreateOutputScatteringItemsIfNeeded(exec_plan_metadata, exec_plan_location);
+
+    // If they were created, gather/scatter items will execute
+    // load/store ops.  But if they were not created (either because
+    // the plan really is single-device, or because no gather/scatter
+    // step was necessary, then the single-device plan needs to
+    // execute them.
     auto exec_item
         = BuildSingleDevicePlan(exec_plan_metadata,
                                 exec_plan_location,
-                                plan_is_single_dev ? desc.loadOps : std::optional<LoadOps>{},
-                                plan_is_single_dev ? desc.storeOps : std::optional<StoreOps>{},
+                                gather_items.empty() ? desc.loadOps : std::optional<LoadOps>{},
+                                scatter_items.empty() ? desc.storeOps : std::optional<StoreOps>{},
                                 !plan_is_single_dev);
 
+    // Add single-device plan (dependent on gathering to happen
+    // first) to the multi-plan
     exec_item->description     = "Single-device FFT execution plan";
     const auto exec_item_index = AddMultiPlanItem(std::move(exec_item), gather_items);
-    if(!plan_is_single_dev)
-        CreateOutputScatteringItemsIfNeeded(
-            exec_plan_metadata, exec_plan_location, {exec_item_index});
+
+    // Scatter items were already added to the multi-plan but do not
+    // yet depend on the single-device plan.  Add that dependency
+    // now.
+    for(auto scatterItem : scatter_items)
+    {
+        AddAntecedent(scatterItem, exec_item_index);
+    }
 }
 
 rocfft_plan_t::embarrassingly_parallel_fft::embarrassingly_parallel_fft(
