@@ -2072,6 +2072,7 @@ std::vector<size_t>
         auto scatter_node_raw_ptr = scatter_node.get();
         // Add scatter_node to the plan, operations are added to it below
         const auto scatter_idx = AddMultiPlanItem(std::move(scatter_node), antecedents);
+        scatter_plan_items.push_back(scatter_idx);
         // Devices may need to unpack their data (locally) after having received it from
         // packing_temp_buffer
         std::vector<TempBufferLease> local_packed_chunk;
@@ -2101,6 +2102,7 @@ std::vector<size_t>
                                 std::nullopt),
                 antecedents);
             AddAntecedent(scatter_idx, packIdx);
+            scatter_plan_items.push_back(packIdx);
             if(!need_apply_store_ops && obrick.layout.is_contiguous())
             {
                 // Bricks are packed to be contiguous - if output is the
