@@ -321,6 +321,11 @@ TEST(multi_gpu_validate, catch_validation_errors)
         {
             auto& param = params[i];
 
+            // We're only validating split types and these tests
+            // won't specify callbacks
+            if(param.run_callbacks != fft_callback_type_none)
+                continue;
+
             // this validation runs in rocfft-test itself and
             // multi-process libs are not initialized.
             if(param.mp_lib != fft_params::fft_mp_lib_none)
