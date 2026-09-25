@@ -243,27 +243,35 @@ struct convolution_kernel : public convolution
         // pad F and G
 
         // launch kernels to do the padding
-        {
-            dim3 blockDim{32, 1, 1};
-            dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
-            pad_kernel<<<gridDim, blockDim>>>(F.data(), padded_F.data(), length, lengthPadded);
-        }
-        {
-            dim3 blockDim{32, 1, 1};
-            dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
-            pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
-        }
+        // {
+        //     dim3 blockDim{32, 1, 1};
+        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded * batch / 32), 1, 1};
+        //     pad_kernel<<<gridDim, blockDim>>>(F.data(), padded_F.data(), length, lengthPadded);
+        // }
+        // {
+        //     dim3 blockDim{32, 1, 1};
+        //     dim3 gridDim{static_cast<unsigned int>(lengthPadded / 32), 1, 1};
+        //     pad_kernel<<<gridDim, blockDim>>>(G.data(), padded_G.data(), length, lengthPadded);
+        // }
 
         // or,
 
         // use hipmemset + hipmemcpy to do the padding
-        // if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
-        //    || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
-        //     throw std::runtime_error("failed to memset");
+        if(hipMemset(padded_F.data(), 0, padded_F.size()) != hipSuccess
+           || hipMemset(padded_G.data(), 0, padded_G.size()) != hipSuccess)
+            throw std::runtime_error("failed to memset");
 
-        // if(hipMemcpy(padded_F.data(), F.data(), F.size(), hipMemcpyDeviceToDevice) != hipSuccess
-        //    || hipMemcpy(padded_G.data(), G.data(), G.size(), hipMemcpyDeviceToDevice) != hipSuccess)
-        //     throw std::runtime_error("failed to memcpy");
+        if(hipMemcpy2D(padded_F.data(),
+                       sizeof(Tdata) * lengthPadded,
+                       F.data(),
+                       sizeof(Tdata) * length,
+                       sizeof(Tdata) * length,
+                       batch,
+                       hipMemcpyDeviceToDevice)
+               != hipSuccess
+           || hipMemcpy(padded_G.data(), G.data(), sizeof(Tdata) * length, hipMemcpyDeviceToDevice)
+                  != hipSuccess)
+            throw std::runtime_error("failed to memcpy");
 
         // padded forward transforms
         std::vector<void*> ptrs(1);
@@ -466,18 +474,18 @@ int main()
     // run_testcase(40000, 10);
     // run_testcase(40000, 50);
     // run_testcase(40000, 100);
-    run_testcase(65536 * 4, 1);
-    run_testcase(65536 * 4, 10);
-    run_testcase(65536 * 4, 50);
-    run_testcase(65536 * 4, 100);
-    run_testcase(65536 * 8, 1);
-    run_testcase(65536 * 8, 10);
-    run_testcase(65536 * 8, 50);
-    run_testcase(65536 * 8, 100);
-    run_testcase(65536 * 16, 1);
-    run_testcase(65536 * 16, 10);
-    run_testcase(65536 * 16, 50);
-    run_testcase(65536 * 16, 100);
+    run_testcase(1 << 18, 1);
+    run_testcase(1 << 18, 10);
+    run_testcase(1 << 18, 50);
+    run_testcase(1 << 18, 100);
+    run_testcase(1 << 19, 1);
+    run_testcase(1 << 19, 10);
+    run_testcase(1 << 19, 50);
+    run_testcase(1 << 19, 100);
+    run_testcase(1 << 20, 1);
+    run_testcase(1 << 20, 10);
+    run_testcase(1 << 20, 50);
+    run_testcase(1 << 20, 100);
 
     params.cleanup();
 }
