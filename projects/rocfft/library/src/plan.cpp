@@ -4975,7 +4975,12 @@ rocfft_status rocfft_plan_create(rocfft_plan*                  plan,
                                  const rocfft_plan_description description)
 try
 {
-    rocfft_plan_allocate(plan);
+    if(!plan)
+        return rocfft_status_invalid_arg_value;
+
+    // Alloc plan internally, don't assign it to the user's pointer
+    // until we're sure we've succeeded
+    auto plan_temp = std::make_unique<rocfft_plan_t>();
 
     size_t log_len[3] = {1, 1, 1};
     if(dimensions > 0)
@@ -4987,7 +4992,7 @@ try
 
     log_trace(__func__,
               "plan",
-              *plan,
+              plan_temp.get(),
               "placement",
               placement,
               "transform_type",
@@ -5003,14 +5008,17 @@ try
               "description",
               description);
 
-    return rocfft_plan_create_internal(*plan,
-                                       placement,
-                                       transform_type,
-                                       precision,
-                                       dimensions,
-                                       lengths,
-                                       number_of_transforms,
-                                       description);
+    auto ret = rocfft_plan_create_internal(plan_temp.get(),
+                                           placement,
+                                           transform_type,
+                                           precision,
+                                           dimensions,
+                                           lengths,
+                                           number_of_transforms,
+                                           description);
+    if(ret == rocfft_status_success)
+        *plan = plan_temp.release();
+    return ret;
 }
 catch(...)
 {
