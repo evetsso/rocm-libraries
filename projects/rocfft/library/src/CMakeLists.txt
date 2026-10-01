@@ -37,7 +37,10 @@ endfunction( )
 # Add a definition for internal library targets so code can be
 # conditional on being in-library or not
 function( rocfft_add_internal_build_flag target )
-  target_compile_definitions( ${target} PRIVATE ROCFFT_BUILD_INTERNAL )
+  get_target_property( target_is_imported ${target} IMPORTED )
+  if( NOT target_is_imported )
+    target_compile_definitions( ${target} PRIVATE ROCFFT_BUILD_INTERNAL )
+  endif()
 endfunction()
 
 # Link to an internal object library.  Setting LINK_LIBRARIES
