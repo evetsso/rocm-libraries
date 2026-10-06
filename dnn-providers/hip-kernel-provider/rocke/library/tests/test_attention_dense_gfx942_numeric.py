@@ -34,16 +34,15 @@ from kernels.gfx942.attention_dense import (
 )
 
 
+torch = pytest.importorskip("torch", reason="ROCm torch required")
+
+
 def _gpu_ready():
     """True only on a gfx942 box with ROCm torch. Gate on ``gcnArchName`` (the ISA
     target), NOT the marketing name: the whole MI300 family is gfx942, but the
     marketing string varies (``MI300X``/``MI300A``/``MI308X``) and a substring check
     for ``"mi300"`` silently MISSES ``MI308X`` -- the exact skip that hid this lane on
     the first run. The arch string is stable across the family."""
-    try:
-        import torch
-    except Exception:  # noqa: BLE001
-        return False
     if not torch.cuda.is_available():
         return False
     arch = torch.cuda.get_device_properties(0).gcnArchName.lower()
@@ -74,10 +73,27 @@ _COHORT = [
     ("fp16", 128, 16, 4, False, False),  # fp16 D128 non-causal default -- swizzle path
 ]
 
+# (dtype, head_size, num_query_heads, num_kv_heads, persistent, sliding_window) --
+# STANDALONE sliding-window (no sinks; gfx942 dense has no sink support yet). All rows
+# are causal (sliding_window > 0 requires causal). Window is a multiple of the shipped
+# block_n (64): 128, 256. Covers both dtypes, D64/D128, and BOTH grid variants -- the
+# persistent rows exercise the per-work-item start_tile prune that the default grid
+# does not.
+_SWA_COHORT = [
+    ("bf16", 128, 16, 4, False, 128),
+    ("bf16", 128, 16, 4, True, 128),
+    ("fp16", 128, 16, 4, False, 256),
+    ("fp16", 128, 16, 4, True, 256),
+    ("bf16", 64, 16, 4, False, 128),
+    ("bf16", 64, 16, 4, True, 128),
+]
 
-def _spec(dtype, d, hq, hkv, persistent, *, causal=True, batch=1, sq=512):
+
+def _spec(
+    dtype, d, hq, hkv, persistent, *, causal=True, batch=1, sq=512, sliding_window=0
+):
     """The SHIPPED gfx942 dense spec for a cohort row, built through the dispatch
-    factory (``dispatch.attention.gfx942._dense_spec``) rather than hand-rolled.
+    candidate (``gfx942_dense`` via ``dispatch.attention``) rather than hand-rolled.
 
     Hand-rolling the spec silently pins every tuned lever to the shared (gfx950)
     dataclass default, so the lane would assert on configs that do not ship. The
@@ -88,24 +104,23 @@ def _spec(dtype, d, hq, hkv, persistent, *, causal=True, batch=1, sq=512):
     ``amdgpu-waves-per-eu`` attribute, changes register allocation, and is tagged into
     ``gfx942_kernel_name`` as ``wpe{N}``, so wpe2 and wpe4 are DIFFERENT binaries.
     ``num_persistent`` was likewise hard-coded to 304 beside a dispatch constant that
-    already resolves to 304 -- left at the request default here so ``_dense_spec``
-    substitutes the gfx942 CU count itself and the two cannot drift apart.
+    already resolves to 304 -- left at the candidate default here so dispatch
+    supplies the gfx942 CU count itself and the two cannot drift apart.
 
     Deriving the spec from the factory (the pattern
     ``test_attention_dense_gfx942_golden.py::mk_dispatch`` uses for its D64 cases)
     also means a future gfx942 tuning change is picked up here with no edit.
 
-    Only ``dense_persistent`` is pinned rather than left on "auto": the cohort asserts
-    BOTH grid variants at one fixed Sq, where "auto" would pick a single one. Every
+    Only the ``persistent`` knob is set rather than left at the default: the cohort
+    asserts BOTH grid variants at one fixed Sq, where the default picks one. Every
     other lever -- block_n, the D64 K row-group pad, persist_decode, ragged -- is
     whatever the shipped path folds in.
     """
     # Imported lazily, mirroring the golden sibling: keeps module import (and hence
     # CPU collection of this gpu-marked file) independent of the dispatch package.
-    from dispatch.attention import AttentionRequest
-    from dispatch.attention.gfx942 import _dense_spec
+    from dispatch.attention import AttentionRequest, tuning_spec_with_knobs
 
-    return _dense_spec(
+    return tuning_spec_with_knobs(
         AttentionRequest(
             batch=batch,
             nhead_q=hq,
@@ -117,10 +132,11 @@ def _spec(dtype, d, hq, hkv, persistent, *, causal=True, batch=1, sq=512):
             arch="gfx942",
             mask_type=1 if causal else 0,
             dtype=dtype,
-            algorithm="attention_dense",
-            dense_persistent="on" if persistent else "off",
-        )
-    )
+            sliding_window=sliding_window,
+        ),
+        "gfx942_dense",
+        {"persistent": bool(persistent)},
+    ).kernel_spec
 
 
 @requires_gfx942_gpu
@@ -280,6 +296,67 @@ def test_one_binary_serves_every_shape():
 
 @requires_gfx942_gpu
 @pytest.mark.gpu
+@pytest.mark.parametrize("dtype,d,hq,hkv,persistent,sliding_window", _SWA_COHORT)
+def test_dense_swa_numeric_vs_fp32_sdpa(dtype, d, hq, hkv, persistent, sliding_window):
+    """Sliding-window (SWA) numeric parity, standalone (no sinks), both grids.
+
+    The band is the same one the gfx950 sibling masks (``_sink_reference``: causal
+    ``ki > qi`` plus window ``ki <= qi - W`` masked out) and the kernel applies
+    (``cmp_le(ktok, q)`` + ``cmp_gt(ktok, q - SW)``): keep key k for query q iff
+    ``q - W < k <= q``. Expressed here as a boolean SDPA attn_mask -- matching this
+    file's SDPA-based base oracle -- rather than gfx950's manual masked-softmax,
+    which exists only because gfx950 also concatenates a sink column (gfx942 has no
+    sinks yet). The diagonal k==q is always kept (W>0), so no row is fully masked."""
+    import torch
+    import torch.nn.functional as F
+
+    tol = 2e-2 if dtype == "fp16" else 4e-2
+    tdt = getattr(torch, _TORCH_DT[dtype])
+    B, S = 1, 512
+    scale = 1.0 / math.sqrt(d)
+    torch.manual_seed(0)
+
+    q = torch.randn(B, S, hq, d, device="cuda", dtype=tdt)
+    k = torch.randn(B, S, hkv, d, device="cuda", dtype=tdt)
+    v = torch.randn(B, S, hkv, d, device="cuda", dtype=tdt)
+    out = torch.empty(B, S, hq, d, device="cuda", dtype=tdt)
+
+    spec = _spec(
+        dtype,
+        d,
+        hq,
+        hkv,
+        persistent,
+        causal=True,
+        batch=B,
+        sq=S,
+        sliding_window=sliding_window,
+    )
+    run_attention_dense_torch(spec=spec, q=q, k=k, v=v, out=out, scale=scale)
+    torch.cuda.synchronize()
+
+    qi = torch.arange(S, device="cuda").view(-1, 1)
+    ki = torch.arange(S, device="cuda").view(1, -1)
+    keep = (ki <= qi) & (ki > qi - sliding_window)  # [S, S] bool, True = attend
+    rep = hq // hkv
+    qf = q.transpose(1, 2).float()
+    kf = k.transpose(1, 2).float().repeat_interleave(rep, dim=1)
+    vf = v.transpose(1, 2).float().repeat_interleave(rep, dim=1)
+    ref = F.scaled_dot_product_attention(
+        qf, kf, vf, attn_mask=keep, scale=scale
+    ).transpose(
+        1, 2
+    )  # -> [B,S,Hq,D]
+
+    max_abs = (ref - out.float()).abs().max().item()
+    assert max_abs < tol, (
+        f"{dtype} D{d} GQA{hq}/{hkv} swa{sliding_window} "
+        f"{'persist' if persistent else 'default'}: max_abs={max_abs:.3e} >= {tol}"
+    )
+
+
+@requires_gfx942_gpu
+@pytest.mark.gpu
 @pytest.mark.parametrize("block_n", [32])
 def test_dense_fp16_d128_numeric_correct_at_non_shipped_tile_width(block_n):
     """fp16-D128 stays numerically correct at a tile width dispatch never emits
@@ -364,6 +441,55 @@ def test_exp2_fast_matches_plain_exp2(dtype, d, hq, hkv, persistent):
     assert torch.equal(outs[False], outs[True]), (
         f"{dtype} D{d} {'persist' if persistent else 'default'}: exp2_fast "
         f"diverged from plain exp2 (max_abs={max_abs:.3e})"
+    )
+
+
+# Performance-only codegen knobs. None of them changes arithmetic (PV order keeps
+# each output tile's key-step order, a width only splits the same stores, the
+# diagonal split skips selects whose condition is always true), so every override
+# must be BIT-identical to the shipped default. Sq=512 gives a second query block,
+# whose below-diagonal tiles are what the split leaves unmasked.
+_KNOB_AB_COHORT = [
+    ("fp16", 128, False, dict(causal_diag_split=True)),
+    ("fp16", 128, True, dict(causal_diag_split=True)),
+    ("bf16", 64, False, dict(causal_diag_split=True)),
+    ("fp16", 128, False, dict(pv_loop_order="k_major")),
+    ("bf16", 128, True, dict(pv_loop_order="k_major")),
+    ("bf16", 128, False, dict(o_store_width=1)),
+    ("bf16", 64, True, dict(o_store_width=2)),
+    ("fp16", 128, False, dict(pv_priority=2, pv_sched_fence_mask=0)),
+    ("fp16", 128, False, dict(iglp=True, iglp_mode=1)),
+]
+
+
+@requires_gfx942_gpu
+@pytest.mark.gpu
+@pytest.mark.parametrize("dtype,d,persistent,overrides", _KNOB_AB_COHORT)
+def test_codegen_knob_is_bit_identical_to_default(dtype, d, persistent, overrides):
+    import torch
+
+    hq, hkv = 16, 4
+    tdt = getattr(torch, _TORCH_DT[dtype])
+    B, S = 1, 512
+    scale = 1.0 / math.sqrt(d)
+    torch.manual_seed(0)
+
+    q = torch.randn(B, S, hq, d, device="cuda", dtype=tdt)
+    k = torch.randn(B, S, hkv, d, device="cuda", dtype=tdt)
+    v = torch.randn(B, S, hkv, d, device="cuda", dtype=tdt)
+    base = _as_gfx942_spec(_spec(dtype, d, hq, hkv, persistent, batch=B, sq=S))
+
+    outs = []
+    for spec in (base, dataclasses.replace(base, **overrides)):
+        out = torch.empty(B, S, hq, d, device="cuda", dtype=tdt)
+        run_attention_dense_torch(spec=spec, q=q, k=k, v=v, out=out, scale=scale)
+        outs.append(out)
+    torch.cuda.synchronize()
+
+    max_abs = (outs[0].float() - outs[1].float()).abs().max().item()
+    assert torch.equal(outs[0], outs[1]), (
+        f"{dtype} D{d} {'persist' if persistent else 'default'} {overrides}: "
+        f"diverged from the shipped default (max_abs={max_abs:.3e})"
     )
 
 

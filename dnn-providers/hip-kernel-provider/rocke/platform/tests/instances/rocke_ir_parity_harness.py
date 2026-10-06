@@ -12,6 +12,9 @@ import traceback
 from collections import Counter
 from pathlib import Path
 
+from rocke.core.ir_golden import GOLDEN_FLAVORS
+from rocke.core.ir_golden import check_golden as _check_golden
+
 
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -23,8 +26,8 @@ def safe(name: str) -> str:
 
 def current_flavor() -> str:
     """The llvm flavor this host would autodetect (llvm20 for ROCm < 7.2,
-    llvm22 for 7.2-7.12, llvm23 for 7.13+). The golden stores all of them; the
-    gate compares only this one."""
+    llvm22 for 7.2-7.12, llvm23 for 7.13+). Only the plain dump run (no
+    ``--check`` / ``--write``) uses it; the gate checks every flavor."""
     from rocke.core.lower_llvm import _resolve_llvm_flavor
 
     return _resolve_llvm_flavor()
@@ -353,6 +356,7 @@ def build_attention_2d(
     sliding_window=0,
     has_softcap=False,
     use_alibi=False,
+    use_sinks=False,
     **kw,
 ):
     def _build():
@@ -365,7 +369,7 @@ def build_attention_2d(
             num_query_heads=num_query_heads,
             num_kv_heads=num_kv_heads,
             dtype=dtype,
-            use_sinks=False,
+            use_sinks=use_sinks,
             sliding_window=sliding_window,
             has_softcap=has_softcap,
             use_alibi=use_alibi,
@@ -432,15 +436,16 @@ def build_attention_reduce(
     return _build
 
 
-def build_attention_dense(arch, **over):
+def build_attention_dense(arch, *, geometry=None, **over):
     """Dense flash-attn prefill spec (library ``kernels/gfx950/attention_dense``).
 
-    ``over`` patches the shared base spec; a small Sq keeps the IR compact while
-    still exercising the full pipeline (both the default one-CTA-per-q-block grid
-    and the persistent grid-stride grid).
+    ``geometry`` selects a shared tile geometry and ``over`` patches the base spec;
+    a small Sq keeps the IR compact while still exercising the full pipeline (both
+    the default one-CTA-per-q-block grid and the persistent grid-stride grid).
     """
 
     def _build():
+        from kernels.common.attention_dense_spec import DENSE_TILE_GEOMETRIES
         from kernels.gfx950.attention_dense import (
             Gfx950AttentionDenseSpec,
             build_attention_dense as _build_dense,
@@ -456,6 +461,8 @@ def build_attention_dense(arch, **over):
             causal=True,
             dtype="bf16",
         )
+        if geometry is not None:
+            spec.update(DENSE_TILE_GEOMETRIES[geometry])
         spec.update(over)
         return _build_dense(Gfx950AttentionDenseSpec(**spec))
 
@@ -756,7 +763,9 @@ def build_deep(kind, arch, **kw):
 # C++ engine parity: direct-conv parity is gated via tools/check_byte_identity.py
 # (see tests/instances/parity/conv_direct_grouped_emit.* and the
 # conv_direct_grouped family in tests/instances/differential/golden/llvm_gfx_all.json).
-# All five variants (16c, 4c, 8c, 32c, depthwise) are covered as configs 0-8.
+# The existing direct-conv variants occupy configs 0-24; the wgrad variant is
+# configs 25-31 (25 mfma_k=32, 26 mfma_k=16, 27 multi-wave K/C/Q, 28-29 the two
+# gfx942 rejection paths, 30-31 bf16 at mfma_k=32 / 16).
 # If you add new direct-conv variants, add matching configs to both emitters and
 # re-bless the golden.
 # ---------------------------------------------------------------------------
@@ -2377,6 +2386,57 @@ def cases():
             use_alibi=True,
         ),
     )
+    # fp16 + sinks COMBO: the transposed-32x32 combo spec `_enable_combo_2d`
+    # admits for fp16+sinks. The combo knobs are passed explicitly so the golden
+    # hashes the real combo kernel (matching emit parity idx54), not a plain 2D
+    # spec. fp16 cannot set use_fast_paged_kv_desc (bf16-only).
+    _sink_combo_kw = dict(
+        num_seqs=2,
+        num_warps=4,
+        block_m_per_warp=32,
+        tile_size=64,
+        use_mfma_32x32=True,
+        use_transposed_qk_32x32=True,
+        use_transposed_scalar_state=True,
+        use_transposed_mask_once=True,
+        use_transposed_mask_limit=True,
+        use_mfma32_skip_legacy_qreg=True,
+        use_transposed_half_local_pv=True,
+    )
+    add(
+        "attention",
+        "attention/gfx950/2d_fp16_d64_b32_gqa8_sinks_combo",
+        "gfx950",
+        build_attention_2d(
+            "irhash_attn_950_2d_fp16_d64_sink_combo",
+            "gfx950",
+            head_size=64,
+            block_size=32,
+            num_query_heads=64,
+            num_kv_heads=8,
+            dtype="fp16",
+            use_sinks=True,
+            **_sink_combo_kw,
+        ),
+    )
+    # bf16 + sinks COMBO twin (adds use_fast_paged_kv_desc, bf16-only).
+    add(
+        "attention",
+        "attention/gfx950/2d_bf16_d64_b32_gqa8_sinks_combo",
+        "gfx950",
+        build_attention_2d(
+            "irhash_attn_950_2d_bf16_d64_sink_combo",
+            "gfx950",
+            head_size=64,
+            block_size=32,
+            num_query_heads=64,
+            num_kv_heads=8,
+            dtype="bf16",
+            use_sinks=True,
+            use_fast_paged_kv_desc=True,
+            **_sink_combo_kw,
+        ),
+    )
     add(
         "attention",
         "attention/gfx950/3d_fp16_d128_b64",
@@ -2534,6 +2594,37 @@ def cases():
         ("fp16_h64_sq512", {"dtype": "fp16", "head_size": 64}),
         ("bn128_sq512", {"block_n": 128}),
         ("noncausal_sq512", {"causal": False}),
+        # --- bottom-right diagonal. Four cases pin the aligned and arbitrary
+        # shifted-diagonal routes, the sink composition, and the BM128 geometry.
+        (
+            "bottom_right_sq512",
+            {"seqlen_kv": 1024, "causal_bottom_right": True},
+        ),
+        (
+            "ragged_bottom_right_sq500",
+            {
+                "seqlen_q": 500,
+                "seqlen_kv": 1234,
+                "ragged": True,
+                "causal_bottom_right": True,
+            },
+        ),
+        (
+            "bottom_right_sinks_sq512",
+            {
+                "seqlen_kv": 1024,
+                "causal_bottom_right": True,
+                "use_sinks": True,
+            },
+        ),
+        (
+            "bottom_right_bm128_sq512",
+            {
+                "seqlen_kv": 1024,
+                "causal_bottom_right": True,
+                "geometry": "bm128",
+            },
+        ),
         # --- persistent (grid-stride) grid + decode variants ---
         ("persistent_causal_sq512", {"persistent": True, "num_persistent": 256}),
         (
@@ -3077,8 +3168,8 @@ def cases():
 # gate (check_golden) verifies all of them from any host: the flavor is an
 # argument to lowering, so nothing about the running ROCm vintage limits which
 # sub-documents can be checked. The same committed golden is therefore valid,
-# and verified, on ROCm < 7.2 (llvm20), 7.2-7.12 (llvm22), and 7.13+ (llvm23).
-GOLDEN_FLAVORS = ("llvm20", "llvm22", "llvm23")
+# and verified, on every ROCm vintage. GOLDEN_FLAVORS is LLVM_FLAVORS, so a new
+# flavor fails the gate until the golden is re-blessed.
 GOLDEN_SCHEMA = "ck.dsl.ir_golden_sha256/v2"
 
 
@@ -3130,55 +3221,9 @@ def check_golden(golden_path: Path, flavor: str | None = None) -> list[str]:
     """Compare a fresh run against the golden sub-doc(s). Empty list == OK.
 
     With no ``flavor``, every flavor in :data:`GOLDEN_FLAVORS` is checked, not
-    just the one this host autodetects. Lowering takes the flavor as an
-    argument, so the extra runs cost a few hundred milliseconds -- whereas
-    checking only the host's flavor leaves the other sub-documents unverified
-    by any machine that does not happen to run that ROCm vintage. The llvm23
-    sub-document, for instance, is only reachable on ROCm >= 7.13, so it would
-    otherwise sit in the golden untested.
-
-    Drift strings are prefixed with the flavor when more than one is checked.
+    just the one this host autodetects; see :func:`rocke.core.ir_golden.check_golden`.
     """
-    doc = json.loads(golden_path.read_text())
-    have = doc.get("flavors", {})
-    wanted = [flavor] if flavor else list(GOLDEN_FLAVORS)
-    errors: list[str] = []
-    for fl in wanted:
-        base = have.get(fl)
-        if base is None:
-            errors.append(
-                f"golden has no entry for flavor {fl!r} (have {sorted(have)})"
-            )
-            continue
-        prefix = "" if len(wanted) == 1 else f"[{fl}] "
-        errors.extend(prefix + e for e in compare(base, run(flavor=fl)))
-    return errors
-
-
-def compare(base, cur):
-    errors = []
-    for section in ("cases", "expected_failures"):
-        bkeys = set(base.get(section, {}))
-        ckeys = set(cur.get(section, {}))
-        for missing in sorted(bkeys - ckeys):
-            errors.append(f"{section}: missing current {missing}")
-        for new in sorted(ckeys - bkeys):
-            errors.append(f"{section}: new current {new}")
-    for cid, brec in sorted(base.get("cases", {}).items()):
-        crec = cur.get("cases", {}).get(cid)
-        if not crec:
-            continue
-        if brec.get("sha256") != crec.get("sha256"):
-            errors.append(f"{cid}: {brec.get('sha256')} -> {crec.get('sha256')}")
-    for cid, brec in sorted(base.get("expected_failures", {}).items()):
-        crec = cur.get("expected_failures", {}).get(cid)
-        if not crec:
-            continue
-        if brec.get("type") != crec.get("type") or brec.get("message") != crec.get(
-            "message"
-        ):
-            errors.append(f"{cid}: failure changed {brec} -> {crec}")
-    return errors
+    return _check_golden(golden_path, lambda fl: run(flavor=fl), flavor)
 
 
 def main():
