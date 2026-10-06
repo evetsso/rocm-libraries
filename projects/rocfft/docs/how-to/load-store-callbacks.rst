@@ -216,6 +216,25 @@ callback.
   // parameter.  The callback can then cast that pointer from 'void*' to
   // 'load_callback_data*' and access the filter.
 
+Considerations for multi-device transforms
+------------------------------------------
+
+Multi-device transforms work with input or output that has been
+decomposed into bricks.  JIT callbacks may still be used with such
+plans, though ``buffer`` points to one input brick (for load
+callbacks) or one output brick (for store callbacks).
+
+The ``offset`` provided to any callback counts elements from the
+beginning of the brick being loaded or stored.  On its own,
+``offset`` does not provide information on the location being loaded
+or stored within the global transform.
+
+``callback_data`` points to the corresponding array entry for the
+brick that was specified with
+:cpp:func:`rocfft_execution_info_set_load_callback_data` or
+:cpp:func:`rocfft_execution_info_set_store_callback_data` for load
+and store callbacks, respectively.
+
 Legacy function pointer callbacks (deprecated)
 ----------------------------------------------
 

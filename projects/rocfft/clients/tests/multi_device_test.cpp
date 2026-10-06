@@ -201,8 +201,6 @@ std::vector<fft_params> param_generator_multi_gpu(const SplitType type)
                     continue; // FIXME, fails even with only 2 ranks
                 if(p.placement == fft_placement_inplace)
                     continue; // only out-of-place
-                if(p.run_callbacks != fft_callback_type_none)
-                    continue; // known issue to fix w/ callbacks
                 start_global_dev_id_input  = dev_rng(gen);
                 start_global_dev_id_output = dev_rng(gen);
                 while(start_global_dev_id_input == start_global_dev_id_output)

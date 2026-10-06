@@ -956,20 +956,20 @@ NodeMetaData
 }
 
 // return an ExecPlan that transposes a brick
-std::unique_ptr<ExecPlan> transpose_brick(int                        local_comm_rank,
-                                          rocfft_location_t          location,
-                                          const std::vector<size_t>& length,
-                                          rocfft_precision           precision,
-                                          rocfft_array_type          arrayType,
-                                          BufferPtr                  inputPtr,
-                                          size_t                     offsetIn,
-                                          const std::vector<size_t>& strideIn,
-                                          BufferPtr                  outputPtr,
-                                          size_t                     offsetOut,
-                                          const std::vector<size_t>& strideOut,
-                                          std::string&&              description,
-                                          std::optional<LoadOps>     loadOps,
-                                          std::optional<StoreOps>    storeOps)
+static std::unique_ptr<ExecPlan> transpose_brick(int                        local_comm_rank,
+                                                 rocfft_location_t          location,
+                                                 const std::vector<size_t>& length,
+                                                 rocfft_precision           precision,
+                                                 rocfft_array_type          arrayType,
+                                                 BufferPtr                  inputPtr,
+                                                 size_t                     offsetIn,
+                                                 const std::vector<size_t>& strideIn,
+                                                 BufferPtr                  outputPtr,
+                                                 size_t                     offsetOut,
+                                                 const std::vector<size_t>& strideOut,
+                                                 std::string&&              description,
+                                                 std::optional<LoadOps>     loadOps  = std::nullopt,
+                                                 std::optional<StoreOps>    storeOps = std::nullopt)
 {
     auto      execPlanMultiItem = std::make_unique<ExecPlan>(local_comm_rank, true, location);
     ExecPlan& execPlan          = *execPlanMultiItem;
@@ -1832,9 +1832,8 @@ const rocfft_field_t& rocfft_plan_description_t::get_field_for(io_data_label io,
 }
 
 std::vector<size_t>
-    rocfft_plan_t::CreateInputGatheringItemsIfNeeded(const NodeMetaData&        exec_plan_metadata,
-                                                     const rocfft_location_t&   exec_plan_location,
-                                                     const std::vector<size_t>& antecedents)
+    rocfft_plan_t::CreateInputGatheringItemsIfNeeded(const NodeMetaData&      exec_plan_metadata,
+                                                     const rocfft_location_t& exec_plan_location)
 {
     std::vector<size_t> gather_plan_items; // to be returned;
 
@@ -1887,7 +1886,7 @@ std::vector<size_t>
                                        ibrick.layout.offset_in(single_dev_input_layout),
                                        ibrick.layout.buffer_element_count()});
         }
-        gather_plan_items.push_back(AddMultiPlanItem(std::move(gather_node), antecedents));
+        gather_plan_items.push_back(AddMultiPlanItem(std::move(gather_node), {}));
     }
     else
     {
@@ -1912,7 +1911,7 @@ std::vector<size_t>
         // save the raw pointer as gather_node will be moved below
         auto gather_node_raw_ptr = gather_node.get();
         // Add gather_node to the plan, operations are added to it below
-        const auto gatherIdx = AddMultiPlanItem(std::move(gather_node), antecedents);
+        const auto gatherIdx = AddMultiPlanItem(std::move(gather_node), {});
         // Devices may need to pack their data (locally) before having it transferred
         // to packing_temp_buffer
         std::vector<TempBufferLease> local_packed_chunk;
@@ -1956,9 +1955,8 @@ std::vector<size_t>
                                     0 /* : offsetOut */,
                                     ibrick.layout.contiguous_strides_and_distances(),
                                     std::move(local_pack_description),
-                                    need_apply_load_ops ? desc.loadOps : std::optional<LoadOps>{},
-                                    std::nullopt),
-                    antecedents);
+                                    need_apply_load_ops ? desc.loadOps : std::optional<LoadOps>{}),
+                    {});
                 AddAntecedent(gatherIdx, packIdx);
 
                 gather_node_raw_ptr->AddOperation(
@@ -1984,9 +1982,7 @@ std::vector<size_t>
                                                  exec_plan_metadata.input_buffer,
                                                  ibrick.layout.offset_in(single_dev_input_layout),
                                                  single_dev_input_layout.strides_and_distances(),
-                                                 std::move(description),
-                                                 std::nullopt,
-                                                 std::nullopt),
+                                                 std::move(description)),
                                  {gatherIdx}));
             packed_offset += ibrick.layout.logical_count();
         }
@@ -1996,8 +1992,7 @@ std::vector<size_t>
 
 std::vector<size_t>
     rocfft_plan_t::CreateOutputScatteringItemsIfNeeded(const NodeMetaData&      exec_plan_metadata,
-                                                       const rocfft_location_t& exec_plan_location,
-                                                       const std::vector<size_t>& antecedents)
+                                                       const rocfft_location_t& exec_plan_location)
 {
     std::vector<size_t> scatter_plan_items; // to be returned;
 
@@ -2048,7 +2043,7 @@ std::vector<size_t>
                                         0 /* : destOffset*/,
                                         obrick.layout.buffer_element_count()});
         }
-        scatter_plan_items.push_back(AddMultiPlanItem(std::move(scatter_node), antecedents));
+        scatter_plan_items.push_back(AddMultiPlanItem(std::move(scatter_node), {}));
     }
     else
     {
@@ -2071,8 +2066,7 @@ std::vector<size_t>
         // save the raw pointer as scatter_node will be moved below
         auto scatter_node_raw_ptr = scatter_node.get();
         // Add scatter_node to the plan, operations are added to it below
-        const auto scatter_idx = AddMultiPlanItem(std::move(scatter_node), antecedents);
-        scatter_plan_items.push_back(scatter_idx);
+        const auto scatter_idx = AddMultiPlanItem(std::move(scatter_node), {});
         // Devices may need to unpack their data (locally) after having received it from
         // packing_temp_buffer
         std::vector<TempBufferLease> local_packed_chunk;
@@ -2097,10 +2091,8 @@ std::vector<size_t>
                                 BufferPtr::temp(packing_temp_buffer.data()),
                                 packed_offset,
                                 obrick.layout.contiguous_strides_and_distances(),
-                                std::move(description),
-                                std::nullopt,
-                                std::nullopt),
-                antecedents);
+                                std::move(description)),
+                {});
             AddAntecedent(scatter_idx, packIdx);
             scatter_plan_items.push_back(packIdx);
             if(!need_apply_store_ops && obrick.layout.is_contiguous())
@@ -2135,23 +2127,22 @@ std::vector<size_t>
                 description = "unpack brick " + std::to_string(b_idx)
                               + "'s contiguous data chunk into user's output buffer";
 
-                scatter_plan_items.push_back(AddMultiPlanItem(
-                    transpose_brick(local_comm_rank,
-                                    obrick.location,
-                                    obrick.layout.lengths_and_batches(),
-                                    precision,
-                                    desc.outArrayType,
-                                    BufferPtr::temp(local_packed_chunk.back().data()),
-                                    0 /* : offsetIn */,
-                                    obrick.layout.contiguous_strides_and_distances(),
-                                    output_buffers[b_idx],
-                                    0 /* : offsetOut */,
-                                    obrick.layout.strides_and_distances(),
-                                    std::move(description),
-                                    std::nullopt,
-                                    need_apply_store_ops ? desc.storeOps
-                                                         : std::optional<StoreOps>{}),
-                    {scatter_idx}));
+                AddMultiPlanItem(transpose_brick(local_comm_rank,
+                                                 obrick.location,
+                                                 obrick.layout.lengths_and_batches(),
+                                                 precision,
+                                                 desc.outArrayType,
+                                                 BufferPtr::temp(local_packed_chunk.back().data()),
+                                                 0 /* : offsetIn */,
+                                                 obrick.layout.contiguous_strides_and_distances(),
+                                                 output_buffers[b_idx],
+                                                 0 /* : offsetOut */,
+                                                 obrick.layout.strides_and_distances(),
+                                                 std::move(description),
+                                                 std::nullopt,
+                                                 need_apply_store_ops ? desc.storeOps
+                                                                      : std::optional<StoreOps>{}),
+                                 {scatter_idx});
             }
             packed_offset += obrick.layout.logical_count();
         }
@@ -2837,9 +2828,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeRCCL(const field_view_t&      
                                                output.buffers[info.outBrickIdx],
                                                info.intersection.offset_in(outBrick.layout),
                                                outBrick.layout.strides_and_distances(),
-                                               "local transpose",
-                                               std::nullopt,
-                                               std::nullopt),
+                                               "local transpose"),
                                deps_reading_input(info.inBrickIdx));
         multiPlan[transposeIdx]->group = itemGroup;
         ret.push_back(transposeIdx);
@@ -2891,9 +2880,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeRCCL(const field_view_t&      
                                                    BufferPtr::temp(a2aSendBufs[src_rank].data()),
                                                    dst_rank * uniform_count,
                                                    info.intersection.strides_and_distances(),
-                                                   "pack for ncclAllToAll",
-                                                   std::nullopt,
-                                                   std::nullopt),
+                                                   "pack for ncclAllToAll"),
                                    deps_reading_input(info.inBrickIdx));
             multiPlan[packIdx]->group = itemGroup;
             packItems.push_back(packIdx);
@@ -2938,9 +2925,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeRCCL(const field_view_t&      
                                                    output.buffers[info.outBrickIdx],
                                                    info.intersection.offset_in(outBrick.layout),
                                                    outBrick.layout.strides_and_distances(),
-                                                   "unpack from ncclAllToAll",
-                                                   std::nullopt,
-                                                   std::nullopt),
+                                                   "unpack from ncclAllToAll"),
                                    {a2aIdx});
             multiPlan[unpackIdx]->group = itemGroup;
             ret.push_back(unpackIdx);
@@ -3005,9 +2990,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeRCCL(const field_view_t&      
                                                    BufferPtr::temp(pack.data()),
                                                    0,
                                                    info.intersection.strides_and_distances(),
-                                                   "pack brick for RCCL transpose",
-                                                   std::nullopt,
-                                                   std::nullopt),
+                                                   "pack brick for RCCL transpose"),
                                    deps_reading_input(info.inBrickIdx));
             multiPlan[packIdx]->group = itemGroup;
             packItems.push_back(packIdx);
@@ -3040,9 +3023,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeRCCL(const field_view_t&      
                                                    output.buffers[info.outBrickIdx],
                                                    info.intersection.offset_in(outBrick.layout),
                                                    outBrick.layout.strides_and_distances(),
-                                                   "unpack brick for RCCL transpose",
-                                                   std::nullopt,
-                                                   std::nullopt),
+                                                   "unpack brick for RCCL transpose"),
                                    {}); // rcclIdx added as antecedent below
             multiPlan[unpackIdx]->group = itemGroup;
             ret.push_back(unpackIdx);
@@ -3142,9 +3123,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeP2P(const field_view_t&       
                                                             BufferPtr::temp(pack.data()),
                                                             0,
                                                             intersection.strides_and_distances(),
-                                                            "pack brick for global transpose",
-                                                            std::nullopt,
-                                                            std::nullopt),
+                                                            "pack brick for global transpose"),
                                             pack_dependencies);
             multiPlan[packIdx]->group = itemGroup;
             multiPlan[packIdx]->description
@@ -3186,9 +3165,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeP2P(const field_view_t&       
                                                    output.buffers[outBrickIdx],
                                                    intersection.offset_in(outBrick.layout),
                                                    outBrick.layout.strides_and_distances(),
-                                                   "unpack brick for global transpose",
-                                                   std::nullopt,
-                                                   std::nullopt),
+                                                   "unpack brick for global transpose"),
                                    unpack_dependencies);
             multiPlan[unpackIdx]->group = itemGroup;
             multiPlan[unpackIdx]->description
@@ -3391,9 +3368,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeA2A(const field_view_t&       
                                                        BufferPtr::temp(send_buf.data()),
                                                        send_offsets[outRank],
                                                        intersection.strides_and_distances(),
-                                                       "pack brick for global transpose",
-                                                       std::nullopt,
-                                                       std::nullopt),
+                                                       "pack brick for global transpose"),
                                        pack_dependencies);
                 multiPlan[pack_op]->group = itemGroup;
                 multiPlan[pack_op]->description
@@ -3424,9 +3399,7 @@ std::vector<size_t> rocfft_plan_t::GlobalTransposeA2A(const field_view_t&       
                                                        output.buffers[outBrickIdx],
                                                        intersection.offset_in(outBrick.layout),
                                                        outBrick.layout.strides_and_distances(),
-                                                       "unpack brick for global transpose",
-                                                       std::nullopt,
-                                                       std::nullopt),
+                                                       "unpack brick for global transpose"),
                                        unpack_dependencies);
                 multiPlan[unpack_op]->group = itemGroup;
                 multiPlan[unpack_op]->description

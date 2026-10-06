@@ -8,13 +8,13 @@ Documentation for rocFFT is available at
 ### Added
 
 * JIT callbacks specified with the `rocfft_plan_description_set_load_callback` and
-  `rocfft_plan_description_set_store_callback` APIs can now be used with transforms that have fields or bricks
+  `rocfft_plan_description_set_store_callback` APIs can now be used with transforms that have fields
   specified on the same plan description.
 
 ### Changed
 
 * Function pointer callbacks specified with the deprecated `rocfft_execution_info_set_load_callback` and
-  `rocfft_execution_info_set_store_callback` APIs are now disallowed with transforms that have fields or bricks
+  `rocfft_execution_info_set_store_callback` APIs are now disallowed with transforms that have fields
   specified on the plan description.
 
 ### Resolved issues
