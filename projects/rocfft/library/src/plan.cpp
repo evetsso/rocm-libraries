@@ -1990,9 +1990,10 @@ std::vector<size_t>
     return gather_plan_items;
 }
 
-std::vector<size_t>
-    rocfft_plan_t::CreateOutputScatteringItemsIfNeeded(const NodeMetaData&      exec_plan_metadata,
-                                                       const rocfft_location_t& exec_plan_location)
+std::vector<size_t> rocfft_plan_t::CreateOutputScatteringItemsIfNeeded(
+    const NodeMetaData&            exec_plan_metadata,
+    const rocfft_location_t&       exec_plan_location,
+    const std::optional<StoreOps>& dev_specific_store_ops)
 {
     std::vector<size_t> scatter_plan_items; // to be returned;
 
@@ -2016,7 +2017,7 @@ std::vector<size_t>
     // Store ops must execute in a kernel, so if they're present that
     // means we can't use a communication op as the last thing that
     // touches a brick.
-    const bool need_apply_store_ops = desc.storeOps.enabled();
+    const bool need_apply_store_ops = dev_specific_store_ops && dev_specific_store_ops->enabled();
 
     // Create node that captures data-scattering steps
     std::unique_ptr<CommScatter> scatter_node;
@@ -2140,7 +2141,7 @@ std::vector<size_t>
                                                  obrick.layout.strides_and_distances(),
                                                  std::move(description),
                                                  std::nullopt,
-                                                 need_apply_store_ops ? desc.storeOps
+                                                 need_apply_store_ops ? dev_specific_store_ops
                                                                       : std::optional<StoreOps>{}),
                                  {scatter_idx});
             }
@@ -2175,19 +2176,36 @@ void rocfft_plan_t::MakeSingleDevPlanWithGatherScatterIfNeeded()
     if(!plan_is_single_dev)
         gather_items = CreateInputGatheringItemsIfNeeded(exec_plan_metadata, exec_plan_location);
 
-    if(!plan_is_single_dev)
-        scatter_items = CreateOutputScatteringItemsIfNeeded(exec_plan_metadata, exec_plan_location);
+    auto dev_specific_store_ops = StoreOps::copy_device_specific(desc.storeOps);
 
-    // If they were created, gather/scatter items will execute
-    // load/store ops.  But if they were not created (either because
-    // the plan really is single-device, or because no gather/scatter
-    // step was necessary, then the single-device plan needs to
-    // execute them.
+    if(!plan_is_single_dev)
+        scatter_items = CreateOutputScatteringItemsIfNeeded(
+            exec_plan_metadata, exec_plan_location, dev_specific_store_ops);
+
+    // If they were created, gather/scatter items will execute load
+    // ops and device-specific store ops.  But if they were not
+    // created (either because the plan really is single-device, or
+    // because no gather/scatter step was necessary, then the
+    // single-device plan needs to execute them.
+
+    std::optional<StoreOps> single_dev_store_ops;
+    if(scatter_items.empty())
+    {
+        // No scatter was needed, single device plan run the entire plan-level op
+        single_dev_store_ops = desc.storeOps;
+    }
+    else
+    {
+        // Scatter would have run device-specific ops, single-device
+        // plan needs to run the device-independent bits.
+        single_dev_store_ops = StoreOps::copy_device_independent(desc.storeOps);
+    }
+
     auto exec_item
         = BuildSingleDevicePlan(exec_plan_metadata,
                                 exec_plan_location,
                                 gather_items.empty() ? desc.loadOps : std::optional<LoadOps>{},
-                                scatter_items.empty() ? desc.storeOps : std::optional<StoreOps>{},
+                                single_dev_store_ops,
                                 !plan_is_single_dev);
 
     // Add single-device plan (dependent on gathering to happen
