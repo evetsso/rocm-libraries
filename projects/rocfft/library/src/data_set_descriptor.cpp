@@ -105,10 +105,12 @@ data_descriptor_t::axis_t& data_descriptor_t::operator[](size_t axis_idx)
     IO_DATA_DESCRIPTOR_ACCESSOR_BODY(axis_idx);
 }
 
-data_descriptor_t::data_descriptor_t(const std::vector<size_t>& lower,
-                                     const std::vector<size_t>& upper,
-                                     const std::vector<size_t>& strides,
-                                     size_t                     batch_rank)
+data_descriptor_t::data_descriptor_t(const std::vector<size_t>&   lower,
+                                     const std::vector<size_t>&   upper,
+                                     const std::vector<size_t>&   strides,
+                                     size_t                       batch_rank,
+                                     rocfft_array_type            array_type,
+                                     const std::array<size_t, 2>& offsets)
     : len_axes(batch_rank < lower.size() ? lower.size() - batch_rank : 0)
     , batch_axes(batch_rank)
 {
@@ -135,6 +137,8 @@ data_descriptor_t::data_descriptor_t(const std::vector<size_t>& lower,
         (*this)[dim].upper           = upper[dim];
         (*this)[dim].inbuffer_stride = strides[dim];
     }
+
+    set_array_type_and_offsets(array_type, offsets);
 }
 
 data_descriptor_t::data_descriptor_t(rocfft_precision             precision,
@@ -847,4 +851,35 @@ std::vector<size_t> data_descriptor_t::corresponding_axes_in_embedding() const
                                     std::find(embedding->begin(), embedding->end(), len_idx)));
 
     return ret;
+}
+
+void data_descriptor_t::collapse_contiguous_length_axes()
+{
+    // We expect the layout to be default, with all lower indexes at 0
+    auto nonzero_axis_lower = [](const axis_t& axis) { return axis.lower != 0; };
+    if(std::any_of(len_axes.begin(), len_axes.end(), nonzero_axis_lower))
+    {
+        throw std::invalid_argument("Unexpected nonzero lower index length axis in "
+                                    + ROCFFT_CURRENT_FUNCTION);
+    }
+
+    reorder_length_axes(length_axes_by_increasing_strides(false));
+
+    size_t i = 0;
+    while(i < len_axes.size() - 1)
+    {
+        auto cur  = len_axes.begin() + i;
+        auto next = len_axes.begin() + i + 1;
+        if(cur->upper * cur->inbuffer_stride == next->inbuffer_stride)
+        {
+            // collapse next into i
+            cur->upper *= next->upper;
+            len_axes.erase(next);
+            // don't advance i, so we can re-evaluate against the next value
+        }
+        else
+        {
+            ++i;
+        }
+    }
 }

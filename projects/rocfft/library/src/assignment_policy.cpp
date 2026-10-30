@@ -22,7 +22,7 @@
 #include "../../shared/arithmetic.h"
 #include "../../shared/ptrdiff.h"
 #include "./device/kernels/array_format.h"
-#include "data_layout.h"
+#include "data_set_descriptor.h"
 #include "enum_printer.h"
 #include "logging.h"
 #include "node_factory.h"
@@ -247,7 +247,7 @@ static bool ValidOutBufferBluestein(TreeNode& node)
 // to only want to know what indexes will be touched by a node, and
 // we want to have more ability to reorder the axes to be in standard
 // order.
-static data_layout_t OutputLayout(const TreeNode& node)
+static data_descriptor_t OutputLayout(const TreeNode& node)
 {
     auto len = node.LengthForOutStride();
     len.push_back(node.batch);
@@ -262,7 +262,7 @@ static data_layout_t OutputLayout(const TreeNode& node)
         stride.erase(stride.begin() + 1);
     }
 
-    return data_layout_t{std::vector<size_t>(len.size(), 0), len, stride, 0};
+    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 0, node.outArrayType};
 }
 
 // Return the layout of an input or output buffer of a plan.  The
@@ -270,7 +270,7 @@ static data_layout_t OutputLayout(const TreeNode& node)
 // expecting to only want to know what indexes will be touched by a
 // node, and we want to have more ability to reorder the axes to be
 // in standard order.
-static data_layout_t BufferLayout(const ExecPlan& execPlan, OperatingBuffer buffer)
+static data_descriptor_t BufferLayout(const ExecPlan& execPlan, OperatingBuffer buffer)
 {
     auto len
         = buffer == OB_USER_OUT ? execPlan.rootPlan->GetOutputLength() : execPlan.rootPlan->length;
@@ -279,7 +279,10 @@ static data_layout_t BufferLayout(const ExecPlan& execPlan, OperatingBuffer buff
         = buffer == OB_USER_OUT ? execPlan.rootPlan->outStride : execPlan.rootPlan->inStride;
     stride.push_back(buffer == OB_USER_OUT ? execPlan.rootPlan->oDist : execPlan.rootPlan->iDist);
 
-    return data_layout_t{std::vector<size_t>(len.size(), 0), len, stride, 0};
+    const auto arrayType
+        = buffer == OB_USER_OUT ? execPlan.rootPlan->outArrayType : execPlan.rootPlan->inArrayType;
+
+    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 0, arrayType};
 }
 
 bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
@@ -321,7 +324,7 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
            && nodeOutputLayout.strides().front() == 1 && bufferLayout.strides().front() == 1)
         {
             // Convert the node's layout into real type for comparison
-            nodeOutputLayout = nodeOutputLayout.convert_complex_to_real();
+            nodeOutputLayout = nodeOutputLayout.reinterpret_as(rocfft_array_type_real);
         }
 
         if(BufferIsUnitStride(execPlan, buffer))
@@ -331,7 +334,8 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
         }
 
         return bufferLayout.is_dimensionally_consistent_with(nodeOutputLayout)
-               && bufferLayout.logically_contains(nodeOutputLayout);
+               && data_descriptor_t::make_contiguous_intersection_of(bufferLayout, nodeOutputLayout)
+                      == nodeOutputLayout;
     };
 
     bool test_result = true;
@@ -408,7 +412,7 @@ bool AssignmentPolicy::CheckAssignmentValid(ExecPlan& execPlan)
             return compute_ptrdiff(node->length, node->inStride, node->batch, node->iDist);
 
         const auto layout = OutputLayout(*node);
-        return compute_ptrdiff(layout.lengths_and_batches(), layout.strides_and_distances(), 0, 0);
+        return layout.buffer_element_count();
     };
 
     size_t sizeBufIn  = 0;

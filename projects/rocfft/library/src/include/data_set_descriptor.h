@@ -113,10 +113,12 @@ struct data_descriptor_t
      *   element of `upper`.
      * 
      */
-    data_descriptor_t(const std::vector<size_t>& lower,
-                      const std::vector<size_t>& upper,
-                      const std::vector<size_t>& strides,
-                      size_t                     batch_rank = 1);
+    data_descriptor_t(const std::vector<size_t>&   lower,
+                      const std::vector<size_t>&   upper,
+                      const std::vector<size_t>&   strides,
+                      size_t                       batch_rank = 1,
+                      rocfft_array_type            array_type = rocfft_array_type_unset,
+                      const std::array<size_t, 2>& offsets    = {0, 0});
 
     /**
      * @brief Constructs a new `data_descriptor_t` object with explicit member values,
@@ -525,6 +527,17 @@ struct data_descriptor_t
      * data set embedded within another, higher-dimensional one.
      */
     bool is_embedded() const;
+
+    /**
+     * @brief Modify *this to collapse contiguous length dimensions
+     * together.  Does not consider batch axes.  Expects the layout
+     * to be a default one, with lower indexes on each axis to be 0.
+     *
+     * @note Axes are reordered to have increasing stride.
+     *
+     * @throw `std::invalid_argument` if any lower index is nonzero.
+     */
+    void collapse_contiguous_length_axes();
 
     //-------------------------------------------------------------------------
     //                        DEFAULT COPIES AND MOVES
