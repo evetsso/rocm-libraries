@@ -247,12 +247,14 @@ static bool ValidOutBufferBluestein(TreeNode& node)
 // to only want to know what indexes will be touched by a node, and
 // we want to have more ability to reorder the axes to be in standard
 // order.
-static data_descriptor_t OutputLayout(const TreeNode& node)
+static data_descriptor_t OutputLayout(const TreeNode& node, rocfft_array_type arrayType)
 {
     auto len = node.LengthForOutStride();
     len.push_back(node.batch);
+    len.push_back(1);
     auto stride = node.outStride;
     stride.push_back(node.oDist);
+    stride.push_back(0);
 
     // the last fused Bluestein stage only stores the first transform_length of its padded dims 0-1
     if(node.fuseBlue == BFT_INV_CHIRP_MUL && node.scheme == CS_KERNEL_STOCKHAM_BLOCK_RC)
@@ -262,7 +264,7 @@ static data_descriptor_t OutputLayout(const TreeNode& node)
         stride.erase(stride.begin() + 1);
     }
 
-    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 0, node.outArrayType};
+    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 1, arrayType};
 }
 
 // Return the layout of an input or output buffer of a plan.  The
@@ -270,19 +272,19 @@ static data_descriptor_t OutputLayout(const TreeNode& node)
 // expecting to only want to know what indexes will be touched by a
 // node, and we want to have more ability to reorder the axes to be
 // in standard order.
-static data_descriptor_t BufferLayout(const ExecPlan& execPlan, OperatingBuffer buffer)
+static data_descriptor_t
+    BufferLayout(const ExecPlan& execPlan, OperatingBuffer buffer, rocfft_array_type arrayType)
 {
     auto len
         = buffer == OB_USER_OUT ? execPlan.rootPlan->GetOutputLength() : execPlan.rootPlan->length;
     len.push_back(execPlan.rootPlan->batch);
+    len.push_back(1);
     auto stride
         = buffer == OB_USER_OUT ? execPlan.rootPlan->outStride : execPlan.rootPlan->inStride;
     stride.push_back(buffer == OB_USER_OUT ? execPlan.rootPlan->oDist : execPlan.rootPlan->iDist);
+    stride.push_back(0);
 
-    const auto arrayType
-        = buffer == OB_USER_OUT ? execPlan.rootPlan->outArrayType : execPlan.rootPlan->inArrayType;
-
-    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 0, arrayType};
+    return data_descriptor_t{std::vector<size_t>(len.size(), 0), len, stride, 1, arrayType};
 }
 
 bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
@@ -304,13 +306,13 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
         // CMPLX_TO_R is a special kernel where the incoming arrayType
         // is complex but its output lengths and strides are counting
         // reals.
-        auto nodeOutputLayout = OutputLayout(node);
         auto nodeOutputType
             = node.scheme == CS_KERNEL_COPY_CMPLX_TO_R ? rocfft_array_type_real : arrayType;
+        auto nodeOutputLayout = OutputLayout(node, nodeOutputType);
 
-        auto bufferLayout     = BufferLayout(execPlan, buffer);
         auto bufferLayoutType = buffer == OB_USER_IN ? execPlan.rootPlan->inArrayType
                                                      : execPlan.rootPlan->outArrayType;
+        auto bufferLayout     = BufferLayout(execPlan, buffer, bufferLayoutType);
 
         // Collapse contiguous lengths on both layouts to make them
         // directly comparable.
@@ -334,8 +336,7 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
         }
 
         return bufferLayout.is_dimensionally_consistent_with(nodeOutputLayout)
-               && data_descriptor_t::make_contiguous_intersection_of(bufferLayout, nodeOutputLayout)
-                      == nodeOutputLayout;
+               && nodeOutputLayout.is_continuous_in(bufferLayout);
     };
 
     bool test_result = true;
@@ -411,7 +412,7 @@ bool AssignmentPolicy::CheckAssignmentValid(ExecPlan& execPlan)
         if(input)
             return compute_ptrdiff(node->length, node->inStride, node->batch, node->iDist);
 
-        const auto layout = OutputLayout(*node);
+        const auto layout = OutputLayout(*node, node->outArrayType);
         return layout.buffer_element_count();
     };
 
