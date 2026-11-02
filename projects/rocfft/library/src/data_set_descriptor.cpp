@@ -382,16 +382,52 @@ data_descriptor_t data_descriptor_t::reinterpret_as(rocfft_array_type new_array_
 {
     if(array_type == rocfft_array_type_unset || new_array_type == rocfft_array_type_unset)
         throw std::invalid_argument(ROCFFT_CURRENT_FUNCTION + " requires set array types.");
-    if(array_type_is_real(array_type) != array_type_is_real(new_array_type))
+    if(array_type_is_real(array_type) && !array_type_is_real(new_array_type))
+    {
         throw std::logic_error(ROCFFT_CURRENT_FUNCTION
-                               + ": reinterpreting real data as complex data (or vice versa)"
+                               + ": reinterpreting real data as complex data"
                                  " is not implemented yet.");
-    if(!same_format_up_to_hermitian(array_type, new_array_type))
-        throw std::invalid_argument(ROCFFT_CURRENT_FUNCTION
-                                    + " cannot switch between interleaved and planar formats.");
+    }
+    if(array_type_is_real(new_array_type))
+    {
+        if(array_type_is_planar(array_type))
+        {
+            throw std::invalid_argument(ROCFFT_CURRENT_FUNCTION
+                                        + " cannot reinterpret planar as real.");
+        }
+        else if(array_type_is_interleaved(array_type) && (*this)[0].inbuffer_stride != 1)
+        {
+            throw std::invalid_argument(
+                ROCFFT_CURRENT_FUNCTION
+                + " cannot reinterpret complex data as real when innermost stride != 1.");
+        }
+    }
+    else
+    {
+        if(!same_format_up_to_hermitian(array_type, new_array_type))
+            throw std::invalid_argument(ROCFFT_CURRENT_FUNCTION
+                                        + " cannot switch between interleaved and planar formats.");
+    }
+
     // allowed relabels keep the number of planes, hence the offsets
     auto ret = *this;
     ret.set_array_type_and_offsets(new_array_type, offsets);
+
+    // converting complex to real
+    if(array_type_is_interleaved(array_type) && array_type_is_real(new_array_type))
+    {
+        for(size_t dim = 0; dim < ret.get_full_rank(); dim++)
+        {
+            if(dim == 0)
+            {
+                ret[dim].lower *= 2;
+                ret[dim].upper *= 2;
+            }
+            else
+                ret[dim].inbuffer_stride *= 2;
+        }
+    }
+
     return ret;
 }
 
