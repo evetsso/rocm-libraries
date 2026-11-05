@@ -286,6 +286,41 @@ inline namespace rocfft_internal
             return ret;
         }
 
+        hipError_t alloc_on_stream(const size_t size, hipStream_t stream)
+        {
+            free();
+            // remember the device that was current as of alloc, so we can
+            // free on the correct device
+            auto ret = hipGetDevice(&device);
+            if(ret != hipSuccess)
+                return ret;
+
+#ifndef ROCFFT_BUILD_INTERNAL
+            if(size > device_memory_accountant::singleton().get_usable_bytes(device))
+            {
+                std::stringstream msg;
+                msg << "Unauthorized device allocation (device ID: " << device << ").\n"
+                    << "\tRequested size is " << byte_size_to_str(size) << "\n"
+                    << device_memory_accountant::singleton().get_details(device);
+                throw DEVICEBUF_MEM_USAGE{msg.str()};
+            }
+#endif
+
+            bsize = size;
+            ret   = hipMallocAsync(&buf, bsize, stream);
+            if(ret != hipSuccess)
+            {
+                buf   = nullptr;
+                bsize = 0;
+            }
+
+            this->stream = stream;
+
+#ifndef ROCFFT_BUILD_INTERNAL
+            device_memory_accountant::singleton().record_used_bytes(bsize, device);
+#endif
+        }
+
         size_t size() const
         {
             return bsize;
@@ -299,7 +334,15 @@ inline namespace rocfft_internal
                 {
                     // free on the device we allocated on
                     rocfft_scoped_device dev(device);
-                    (void)hipFree(buf);
+                    if(stream)
+                    {
+                        (void)hipFreeAsync(buf, stream);
+                        stream = nullptr;
+                    }
+                    else
+                    {
+                        (void)hipFree(buf);
+                    }
 #ifndef ROCFFT_BUILD_INTERNAL
                     device_memory_accountant::singleton().release_used_bytes(bsize, device);
 #endif
@@ -342,10 +385,11 @@ inline namespace rocfft_internal
         void* buf = nullptr;
         // whether this object owns the 'buf' pointer (and hence needs to
         // free it)
-        bool   owned             = true;
-        bool   is_managed_memory = false;
-        size_t bsize             = 0;
-        int    device            = 0;
+        bool        owned             = true;
+        bool        is_managed_memory = false;
+        hipStream_t stream            = nullptr;
+        size_t      bsize             = 0;
+        int         device            = 0;
     };
 
     // default gpubuf that gives out void* pointers

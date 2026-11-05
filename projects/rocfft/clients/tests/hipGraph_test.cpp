@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (C) 2023, 2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -281,7 +281,7 @@ TEST(rocfft_UnitTest, hipGraph_execution)
     hipGraph_t     graph      = nullptr;
     hipGraphExec_t graph_exec = nullptr;
 
-    size_t N = 256;
+    size_t N = 65536;
 
     size_t seed = 100;
 
