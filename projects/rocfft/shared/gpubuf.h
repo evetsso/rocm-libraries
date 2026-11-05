@@ -312,6 +312,7 @@ inline namespace rocfft_internal
             {
                 buf   = nullptr;
                 bsize = 0;
+                return ret;
             }
 
             this->stream = stream;
@@ -319,6 +320,7 @@ inline namespace rocfft_internal
 #ifndef ROCFFT_BUILD_INTERNAL
             device_memory_accountant::singleton().record_used_bytes(bsize, device);
 #endif
+            return ret;
         }
 
         size_t size() const

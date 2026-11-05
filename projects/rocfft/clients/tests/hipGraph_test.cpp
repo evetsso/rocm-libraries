@@ -270,7 +270,21 @@ static void compare_data(const std::vector<rocfft_complex<float>>& original_host
     EXPECT_LT(diff.l_inf / input_norm.l_inf, log2(original_host_data.size()) * MAX_TRANSFORM_ERROR);
 }
 
-TEST(rocfft_UnitTest, hipGraph_execution)
+// Base gtest class for comparison with FFTW.
+class hipGraphTest : public ::testing::TestWithParam<size_t>
+{
+protected:
+    void SetUp() override {}
+    void TearDown() override {}
+
+public:
+    static std::string TestName(const testing::TestParamInfo<hipGraphTest::ParamType>& info)
+    {
+        return std::to_string(info.param);
+    }
+};
+
+TEST_P(hipGraphTest, execution)
 {
     if(hash_prob(random_seed, ::testing::UnitTest::GetInstance()->current_test_info()->name())
        > unittest_prob)
@@ -281,7 +295,7 @@ TEST(rocfft_UnitTest, hipGraph_execution)
     hipGraph_t     graph      = nullptr;
     hipGraphExec_t graph_exec = nullptr;
 
-    size_t N = 65536;
+    const size_t N = GetParam();
 
     size_t seed = 100;
 
@@ -395,3 +409,8 @@ TEST(rocfft_UnitTest, hipGraph_execution)
 
     other_stream.free();
 }
+
+INSTANTIATE_TEST_SUITE_P(rocfftGraph,
+                         hipGraphTest,
+                         ::testing::Values(256, 65536),
+                         hipGraphTest::TestName);
