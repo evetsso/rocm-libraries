@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstring> // std::memset
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -35,6 +36,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -1223,10 +1225,11 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
     // copy the user's ionembed into the plan if there is one, use default otherwise
     plan->global_ionembed = !user_ionembed ? hipfft_ionembed_t<size_t>() : *user_ionembed;
 
+    const auto current_device = rocfft_scoped_device::current_device();
     if(plan->device_contexts.empty())
     {
         // not multi-device, so use the current device as the default
-        plan->device_contexts.emplace_back(rocfft_scoped_device::current_device());
+        plan->device_contexts.emplace_back(current_device);
     }
 #ifdef HIPFFT_MPI_ENABLE
     if(plan->mp_input_brick && plan->mp_output_brick)
@@ -1246,9 +1249,9 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
     const bool ignore_user_distances = !plan->global_ionembed.get_nembed(fft_io_in)
                                        && !plan->global_ionembed.get_nembed(fft_io_out);
 
-    for(const auto& map_key : plan->possible_exec_map_key())
-    {
-        const auto dft_type  = std::visit([](const auto& key) { return key.dft_type; }, map_key);
+    std::mutex m;
+    auto       build_one_map_key = [&](const hipfftHandle_t::map_key_t& map_key) {
+        const auto dft_type = std::visit([](const auto& key) { return key.dft_type; }, map_key);
         const auto placement = std::visit(
             [](const auto& key) {
                 if constexpr(std::is_same<std::decay_t<decltype(key)>,
@@ -1279,16 +1282,16 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
         std::reverse(o_strides.begin(), o_strides.end());
         const auto inDist
             = !ignore_user_distances
-                  ? user_idist
-                  : default_distance(fft_transform_type_from_rocfft_transform_type(dft_type),
+                        ? user_idist
+                        : default_distance(fft_transform_type_from_rocfft_transform_type(dft_type),
                                      fft_result_placement_from_rocfft_result_placement(placement),
                                      fft_io_in,
                                      plan->transform_lengths,
                                      number_of_transforms);
         const auto outDist
             = !ignore_user_distances
-                  ? user_odist
-                  : default_distance(fft_transform_type_from_rocfft_transform_type(dft_type),
+                        ? user_odist
+                        : default_distance(fft_transform_type_from_rocfft_transform_type(dft_type),
                                      fft_result_placement_from_rocfft_result_placement(placement),
                                      fft_io_out,
                                      plan->transform_lengths,
@@ -1325,7 +1328,7 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
             ;
         if((plan->load_callback.jit_enabled() || plan->store_callback.jit_enabled())
            && is_multi_gpu_transform)
-            return HIPFFT_NOT_IMPLEMENTED;
+            throw HIPFFT_NOT_IMPLEMENTED;
         if(plan->load_callback.jit_enabled())
         {
             hipfftHandle_t::callback_info_t::validate_type(plan->load_callback.type, plan->io_type);
@@ -1366,6 +1369,9 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
                                  ? HIPFFT_XT_FORMAT_INPLACE
                                  : (io == fft_io_in ? HIPFFT_XT_FORMAT_INPUT
                                                     : HIPFFT_XT_FORMAT_OUTPUT));
+
+                std::lock_guard<std::mutex> guard(m);
+
                 auto& plan_fields = io == fft_io_in ? plan->input_fields : plan->output_fields;
                 auto  it          = plan_fields.find(map_key);
                 if(it == plan_fields.end())
@@ -1405,11 +1411,59 @@ static hipfftResult hipfftMakePlan_internal(hipfftHandle               plan,
         {
             // some plan creates might fail (legitimately) for explicit user-given strides,
             // (e.g., in-place real transforms have compliant strides only for one direction),
-            continue;
+            return;
         }
         // add successful plan to the map, keyed by transform type and input descriptor's subformat
+        std::lock_guard<std::mutex> guard(m);
         plan->exec_plans.emplace(map_key, std::move(rocfft_plan));
+    };
+
+    std::vector<std::thread>       threads;
+    std::vector<std::future<void>> futures;
+
+    auto possible_keys = plan->possible_exec_map_key();
+    for(const auto& map_key : possible_keys)
+    {
+        auto p   = std::make_shared<std::promise<void>>();
+        auto fut = p->get_future();
+
+        threads.emplace_back([map_key, p, build_one_map_key, current_device]() {
+            try
+            {
+                rocfft_scoped_device scoped_dev(current_device);
+                build_one_map_key(map_key);
+                p->set_value();
+            }
+            catch(...)
+            {
+                p->set_exception(std::current_exception());
+            }
+        });
+
+        futures.push_back(std::move(fut));
     }
+
+    for(auto& t : threads)
+    {
+        t.join();
+    }
+
+    std::exception_ptr e;
+    for(auto& fut : futures)
+    {
+        try
+        {
+            fut.get();
+        }
+        catch(...)
+        {
+            if(!e)
+                e = std::current_exception();
+        }
+    }
+
+    if(e)
+        std::rethrow_exception(e);
 
     // If no plans got created or any map entry is null, fail
     if(plan->exec_plans.empty()
