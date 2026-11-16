@@ -309,10 +309,12 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
         auto nodeOutputType
             = node.scheme == CS_KERNEL_COPY_CMPLX_TO_R ? rocfft_array_type_real : arrayType;
         auto nodeOutputLayout = OutputLayout(node, nodeOutputType);
+        // auto nodeOutputOrig   = nodeOutputLayout.str();
 
         auto bufferLayoutType = buffer == OB_USER_IN ? execPlan.rootPlan->inArrayType
                                                      : execPlan.rootPlan->outArrayType;
         auto bufferLayout     = BufferLayout(execPlan, buffer, bufferLayoutType);
+        // auto bufferLayoutOrig = bufferLayout.str();
 
         // Collapse contiguous lengths on both layouts to make them
         // directly comparable.
@@ -329,14 +331,26 @@ bool AssignmentPolicy::ValidOutBuffer(ExecPlan&           execPlan,
             nodeOutputLayout = nodeOutputLayout.reinterpret_as(rocfft_array_type_real);
         }
 
-        if(BufferIsUnitStride(execPlan, buffer))
-        {
-            // just check if there's enough space
-            return nodeOutputLayout.buffer_element_count() <= bufferLayout.buffer_element_count();
-        }
+        // if(BufferIsUnitStride(execPlan, buffer))
+        // {
+        //     // just check if there's enough space
+        //     return nodeOutputLayout.buffer_element_count() <= bufferLayout.buffer_element_count();
+        // }
 
-        return bufferLayout.is_dimensionally_consistent_with(nodeOutputLayout)
-               && nodeOutputLayout.is_continuous_in(bufferLayout);
+        auto ret = bufferLayout.is_dimensionally_consistent_with(nodeOutputLayout)
+                   && nodeOutputLayout.is_continuous_in(bufferLayout);
+        // auto idx = std::find(execPlan.execSeq.begin(), execPlan.execSeq.end(), &node);
+        // printf(
+        //     "SJL fit %zu %s %s -> %d\n  node orig: %s\n  buffer orig %s\n  node: %s\n  buffer %s\n",
+        //     std::distance(execPlan.execSeq.begin(), idx),
+        //     PrintScheme(node.scheme).c_str(),
+        //     PrintOperatingBuffer(buffer).c_str(),
+        //     static_cast<int>(ret),
+        //     nodeOutputOrig.c_str(),
+        //     bufferLayoutOrig.c_str(),
+        //     nodeOutputLayout.str().c_str(),
+        //     bufferLayout.str().c_str());
+        return ret;
     };
 
     bool test_result = true;

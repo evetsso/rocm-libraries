@@ -907,7 +907,7 @@ void data_descriptor_t::collapse_contiguous_length_axes()
     {
         auto cur  = len_axes.begin() + i;
         auto next = len_axes.begin() + i + 1;
-        if(cur->upper * cur->inbuffer_stride == next->inbuffer_stride)
+        if(cur->upper * cur->inbuffer_stride == next->inbuffer_stride || next->upper == 1)
         {
             // collapse next into i
             cur->upper *= next->upper;
